@@ -1,0 +1,211 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  img {
+    @apply inline-block;
+  }
+  body {
+    @apply h-full overflow-x-hidden dark:text-slate-300 text-slate-600 font-normal;
+    &.light,
+    &.skin--default {
+      @apply bg-slate-100;
+    }
+    &.lght,
+    &.skin--bordered {
+      @apply bg-transparent;
+    }
+    &.dark {
+      @apply bg-[#0f172a] text-slate-300;
+    }
+    &::-webkit-scrollbar {
+      @apply w-3 ; // 종스크롤바 폭 조절, px 단위로 수정하고 싶을 때는 @apply 지우고 width: 10px 형식
+    }
+    &::-webkit-scrollbar-track {
+      @apply bg-gray-100 ;
+    }
+    &::-webkit-scrollbar-track.dark {
+      @apply bg-neutral-700 ;
+    }
+    &::-webkit-scrollbar-thumb {
+      @apply bg-gray-300 rounded-full;
+    }
+    &::-webkit-scrollbar-thumb.dark {
+      @apply bg-neutral-500 rounded-full;
+    }
+  }
+  div{
+    &::-webkit-scrollbar {
+      @apply h-3;      // 횡스크롤바 폭 조절, px 단위로 수정하고 싶을 때는 @apply 지우고 width: 10px 형식
+    }
+    &::-webkit-scrollbar-track {
+      @apply bg-gray-100 dark:bg-neutral-700;
+    }
+    &::-webkit-scrollbar-thumb {
+      @apply bg-gray-300 dark:bg-neutral-500 rounded-full;
+    }
+  }
+  html,
+  body {
+    @apply h-full;
+  }
+
+  .dashcode-app-wrapper {
+    @apply relative;
+  }
+  .single-sidebar-menu .ReactCollapse--collapse {
+    transition: height 400ms;
+  }
+  .space-xy-5 {
+    > div,
+    > button,
+    > a,
+    label,
+    > * {
+      @apply mr-2 mb-2;
+    }
+  }
+  .space-xy-6 {
+    > div,
+    > button,
+    > a,
+    label,
+    > * {
+      @apply mr-4 mb-2;
+    }
+  }
+
+  html[dir="rtl"] {
+    .recharts-wrapper {
+      direction: rtl;
+    }
+    .recharts-yAxis {
+      .recharts-text {
+        text-anchor: start;
+      }
+    }
+  }
+  .dashcode-app {
+    .leaflet-control {
+      z-index: 0 !important;
+    }
+    .leaflet-control-container {
+      z-index: 555 !important;
+      position: relative;
+    }
+    .recharts-curve.recharts-tooltip-cursor {
+      display: none;
+    }
+    .recharts-wrapper.bar-chart {
+      .recharts-tooltip-cursor {
+        fill: transparent;
+      }
+    }
+    .recharts-tooltip-wrapper {
+      border: none !important;
+    }
+
+    // .recharts-cartesian-grid line,
+    // .recharts-polar-grid-angle line,
+    // .recharts-yAxis line,
+    // .recharts-xAxis line {
+    //   @apply stroke-black-200 dark:stroke-slate-700;
+    // }
+  }
+}
+@layer components {
+  @import "components/table.scss";
+  @import "components/map.scss";
+  @import "components/progress";
+  @import "components/tippy";
+  @import "components/swiper";
+  @import "components/alert";
+  @import "components/card";
+  @import "components/auth";
+  @import "components/button";
+  @import "components/badge";
+  @import "components/typography";
+  @import "components/form";
+  @import "components/input-group";
+  @import "components/react-select";
+  @import "components/pagination";
+  @import "components/breadcrumbs";
+  @import "layout/header";
+  @import "layout/footer";
+  @import "layout/sidebar";
+  @import "layout/settings";
+  @import "utility/mix";
+  @import "utility/loading";
+  @import "utility/css-animation";
+  @import "utility/calander";
+  @import "utility/full-calender";
+  @import "components/print.scss";
+
+}
+@layer utilities {
+}
+// ag grid header center 정렬
+.ag-header-cell-label, .ag-header-group-cell-label {
+  justify-content: center;
+}
+// ag grid checkbox center 정렬
+.ag-checkbox-cell {
+  justify-content: center;
+}
+// ag grid checkbox cell editing 중앙정렬
+.ag-checkbox-edit
+ {
+  justify-content: center;
+  text-align: center;
+  align-items: center;
+  padding-left: 0px;
+}
+// ag grid text input editing padding
+.ag-input-field-input {
+  padding-left: 15px;
+}
+// ag grid dropdown border
+.ag-list {
+  @apply border-gray-700 dark:border-white
+}
+// spliter gutter 관련 CSS
+.p-splitter-gutter {
+  height: 150px;
+  width: 150px;
+  align-items: center;
+  justify-content: center;
+  margin: 5px 4px ;
+  border-radius: 5px;
+  @apply bg-slate-500 dark:bg-slate-600
+}
+// ag grid 상위 header  css
+.ag-header-cell-comp-wrapper {
+  align-items: center;
+  justify-content: center;
+}
+/* Legend를 가로로 강제 배치 */
+.apexcharts-legend {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: wrap !important;
+  justify-content: center !important;
+  align-items: center !important;
+}
+
+.apexcharts-legend-series {
+  display: flex !important;
+  align-items: center !important;
+  margin: 0 10px !important;
+}
+
+/* 세로 그룹을 가로로 변경 */
+.apexcharts-legend-group-vertical {
+  display: flex !important;
+  flex-direction: row !important;
+}
+
+/* 각 그룹 사이의 간격 조정 */
+.apexcharts-legend-group {
+  margin-right: 0 !important;
+}

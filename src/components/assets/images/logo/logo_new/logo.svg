@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="_레이어_1" data-name="레이어 1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 224 24">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: #ea6450;
+      }
+
+      .cls-1, .cls-2 {
+        stroke-width: 0px;
+      }
+
+      .cls-2 {
+        fill: #26262a;
+      }
+    </style>
+  </defs>
+  <path class="cls-2" d="M84.74,0c-6.63,0-11.98,5.36-11.98,11.99s5.37,12.01,12,12.01,12-5.38,12-12.01S91.36,0,84.74,0ZM84.76,19.19c-3.98,0-7.2-3.22-7.2-7.2s3.22-7.2,7.2-7.2,7.2,3.22,7.2,7.2-3.22,7.2-7.2,7.2Z"/>
+  <path class="cls-2" d="M190.34,0c-6.63,0-11.98,5.36-11.98,11.99s5.37,12.01,12,12.01,12-5.38,12-12.01-5.4-11.99-12.02-11.99ZM190.36,19.19c-3.98,0-7.2-3.22-7.2-7.2s3.22-7.2,7.2-7.2,7.2,3.22,7.2,7.2-3.22,7.2-7.2,7.2Z"/>
+  <g>
+    <g>
+      <polygon class="cls-2" points="5.08 24 .28 24 9.86 0 14.66 0 5.08 24"/>
+      <polygon class="cls-2" points="19.48 24 24.28 24 14.66 0 9.86 0 19.48 24"/>
+    </g>
+    <g>
+      <polygon class="cls-2" points="51.16 4.8 51.14 0 70.34 0 70.36 4.8 51.16 4.8"/>
+      <rect class="cls-2" x="58.35" y="0" width="4.8" height="24" transform="translate(121.5 24) rotate(180)"/>
+    </g>
+    <g>
+      <polygon class="cls-1" points="127.96 24 132.76 24 123.14 0 118.34 0 127.96 24"/>
+      <polygon class="cls-2" points="118.34 0 123.14 0 113.56 24 108.76 24 118.34 0"/>
+      <polygon class="cls-2" points="103.94 0 99.14 0 108.76 24 113.56 24 103.94 0"/>
+      <rect class="cls-1" x="130.36" y="16.8" width="4.8" height="9.6" transform="translate(154.36 -111.16) rotate(90)"/>
+    </g>
+    <g>
+      <polygon class="cls-2" points="135.16 4.8 135.14 0 154.34 0 154.36 4.8 135.16 4.8"/>
+      <rect class="cls-2" x="142.35" y="0" width="4.8" height="24" transform="translate(289.5 24) rotate(180)"/>
+    </g>
+    <g>
+      <polygon class="cls-2" points="211.94 0 207.14 0 216.76 24 221.56 24 211.94 0"/>
+      <rect class="cls-2" x="204.75" y="0" width="4.8" height="24" transform="translate(414.3 24) rotate(180)"/>
+      <rect class="cls-2" x="218.91" y="0" width="4.8" height="24" transform="translate(442.62 24) rotate(180)"/>
+    </g>
+    <g>
+      <polygon class="cls-2" points="156.76 4.8 156.74 0 175.94 0 175.96 4.8 156.76 4.8"/>
+      <rect class="cls-2" x="163.96" y="12" width="4.8" height="19.2" transform="translate(187.96 -144.76) rotate(90)"/>
+      <rect class="cls-2" x="163.95" y="0" width="4.8" height="24" transform="translate(332.7 24) rotate(180)"/>
+    </g>
+    <path class="cls-2" d="M37.72,24c-6.09,0-11.04-4.96-11.04-11.04l-.02-12.96h4.8l.02,12.96c0,3.44,2.8,6.24,6.24,6.24s6.24-2.8,6.24-6.24l-.02-12.96h4.8l.02,12.96c0,6.09-4.95,11.04-11.04,11.04Z"/>
+  </g>
+</svg>
