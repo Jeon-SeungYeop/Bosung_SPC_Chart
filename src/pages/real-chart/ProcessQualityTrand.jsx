@@ -3,16 +3,13 @@ import Card from "@/components/ui/Card";
 import LineChart from "@/components/partials/widget/chart/LineChart";
 import { Line_data } from "@/services/constant/data";
 import Icon from "@/components/ui/Icon";
+import Auto_MessageModal from "@/components/autocomponent/common/Auto_MessageModal";
 import {
-    Auto_Label_Text_Set,
-    CommonFunction,
-    Auto_SearchDropDown,
-    Auto_Spliter
+    Auto_Label_Text_Set, CommonFunction, Auto_SearchDropDown, Auto_Spliter
 } from "@/components/autocomponent";
 import { AgGridReact } from "ag-grid-react";
 
 const ProcessQualityTrand = () => {
-    // 입력부 
     const [searchParams, setSearchParams] = useState({
         date: "",
         cycle: "",
@@ -26,6 +23,12 @@ const ProcessQualityTrand = () => {
     });
     const updateSearchParams = useMemo(() => CommonFunction.createUpdateSearchParams(setSearchParams), [setSearchParams]);
     
+    // Modal창 오픈
+    const [isModalOpen, setIsModalOpen] = useState(false); // All 적용 X
+    const handleCancel = () => {
+        setIsModalOpen(false);
+    };
+
     // gridData Default
     const [gridData1, setGridData1] = useState(
         Array.from({ length: 10 }, (_, i) => ({
@@ -176,12 +179,66 @@ const ProcessQualityTrand = () => {
 
     // 차트 생성
     const make_chart = () => {
-        console.log("A")
+        if (!searchParams.grid1 && !searchParams.grid2 && !searchParams.grid3 && !searchParams.grid4 && !searchParams.grid5 && !searchParams.grid6) setIsModalOpen(true);
     }
 
     // JSON 생성(시나리오 저장)
+    function downloadJson(data, filename = "scenario.json") { // 한글 깨짐 방지 + JSON 다운로드
+        const BOM = new Uint8Array([0xef, 0xbb, 0xbf]);
+        const json = JSON.stringify(data, null, 2);
+        const blob = new Blob([BOM, json], { type: "application/json;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+    }
+    function ts() {
+        // 2025-10-30T09:12:34 -> 2025-10-30-09-12-34
+        return new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    }
     const make_json = () => {
-        console.log("B")
+        // 적용 체크가 하나도 없으면 모달
+        if (
+            !searchParams.grid1 && !searchParams.grid2 && !searchParams.grid3 && !searchParams.grid4 && !searchParams.grid5 && !searchParams.grid6
+        ) {
+            setIsModalOpen(true);
+            return;
+        }
+
+        // grid 데이터 중 division !== 'unavailable' 만 포함
+        const pickRows = (rows) => rows.filter((r) => r.division !== "unavailable");
+
+        // 체크된 그리드만 모아 객체 구성
+        const payload = {
+            meta: {
+                date: searchParams.date || null,
+                cycle: searchParams.cycle || null,
+                amplitude: searchParams.amplitude || null,
+                createdAt: new Date().toISOString(),
+            },
+            scenarios: {
+                ...(searchParams.grid1 ? { 온도계1: pickRows(gridData1) } : {}),
+                ...(searchParams.grid2 ? { 온도계2: pickRows(gridData2) } : {}),
+                ...(searchParams.grid3 ? { 온도계3: pickRows(gridData3) } : {}),
+                ...(searchParams.grid4 ? { 온도계4: pickRows(gridData4) } : {}),
+                ...(searchParams.grid5 ? { 온도계5: pickRows(gridData5) } : {}),
+                ...(searchParams.grid6 ? { 온도계6: pickRows(gridData6) } : {}),
+            },
+        };
+
+        // 파일명 예: 시나리오 저장-2025-10-30-09-12-34.json
+        downloadJson(payload, `시나리오 저장-${ts()}.json`);
+    };
+
+    // JSON 불러오기
+    const load_json = () => {
+        console.log("ASD")
+        return;
     }
 
     // 차트 프린트
@@ -199,6 +256,7 @@ const ProcessQualityTrand = () => {
                 division: i === 0 ? "start" : "unavailable"
             }))
         );
+        searchParams.grid1 = false;
     }
     const resetGrid2 = () => {
         setGridData2(
@@ -209,6 +267,7 @@ const ProcessQualityTrand = () => {
                 division: i === 0 ? "start" : "unavailable"
             }))
         );
+        searchParams.grid2 = false;
     }
     const resetGrid3 = () => {
         setGridData3(
@@ -219,6 +278,7 @@ const ProcessQualityTrand = () => {
                 division: i === 0 ? "start" : "unavailable"
             }))
         );
+        searchParams.grid3 = false;
     }
     const resetGrid4 = () => {
         setGridData4(
@@ -229,6 +289,7 @@ const ProcessQualityTrand = () => {
                 division: i === 0 ? "start" : "unavailable"
             }))
         );
+        searchParams.grid4 = false;
     }
     const resetGrid5 = () => {
         setGridData5(
@@ -239,6 +300,7 @@ const ProcessQualityTrand = () => {
                 division: i === 0 ? "start" : "unavailable"
             }))
         );
+        searchParams.grid5 = false;
     }
     const resetGrid6 = () => {
         setGridData6(
@@ -249,29 +311,42 @@ const ProcessQualityTrand = () => {
                 division: i === 0 ? "start" : "unavailable"
             }))
         );
+        searchParams.grid6 = false;
     }
 
     // Spliter 높이 설정
     const [leftPanelHeight, setLeftPanelHeight] = useState(400);
     const handleSplitterResize = useCallback((event) => {
-        const totalHeight = 1500;
+        const totalHeight = 1800;
         const panelHeight = (totalHeight * event.sizes[0]) / 100;
         const headerHeight = 10;
-        const cardPadding = 40;
+        const cardPadding = 10;
         const newHeight = panelHeight - headerHeight - cardPadding;
         setLeftPanelHeight(Math.max(400, newHeight));
     }, []);
 
     return (
         <div className="space-x-5 p-2">
-            <style>{`
-                .ag-cell-border {
-                    border-right: 1px solid #d1d5db !important;
-                }
-                .ag-theme-alpine .ag-header-cell {
-                    border-right: 1px solid #d1d5db !important;
-                }
-            `}</style>
+            {isModalOpen && (
+                <Auto_MessageModal
+                    activeModal={isModalOpen} // 열림 닫힘 여부 status
+                    onClose={handleCancel} // 닫힘 버튼 클릭 액션
+                    title="적용 실패" // title 
+                    message={"적용된 데이터가 없습니다."} // 메시지
+                    answertype="OK"  // 확인 버튼 . 
+                    headericon={"failed"}
+                />
+            )}
+            <style>
+                {`
+                    .ag-cell-border {
+                        border-right: 1px solid #d1d5db !important;
+                    }
+                    .ag-theme-alpine .ag-header-cell {
+                        border-right: 1px solid #d1d5db !important;
+                    }
+                `}
+            </style>
             <div className="items-center">
                 <Auto_Spliter
                     vertical={true}
@@ -338,9 +413,25 @@ const ProcessQualityTrand = () => {
                                             <span
                                                 className={`transition-transform duration-300 ease-in-out group-hover:scale-150 text-lg`}
                                             >
-                                                <Icon icon={"heroicons-outline:computer-desktop"} />
+                                                <Icon icon={"heroicons-outline:document-arrow-down"} />
                                             </span>
                                             <span className="ml-2">시나리오 저장</span>
+                                        </span>
+                                    </button>
+                                    <button
+                                        onClick={load_json}
+                                        className={`btn btn-dark shadow-base2 font-normal btn-sm group 
+                                                    bg-[#F1F5F9] text-[#141412] 
+                                                    dark:bg-[#0F172A] dark:text-[#DFF6FF] dark:shadow-lg h-[38px]`
+                                                }
+                                    >
+                                        <span className="flex items-center">
+                                            <span
+                                                className={`transition-transform duration-300 ease-in-out group-hover:scale-150 text-lg`}
+                                            >
+                                                <Icon icon={"heroicons-outline:document-arrow-up"} />
+                                            </span>
+                                            <span className="ml-2">시나리오 불러오기</span>
                                         </span>
                                     </button>
                                     <button
@@ -354,7 +445,7 @@ const ProcessQualityTrand = () => {
                                             <span
                                                 className={`transition-transform duration-300 ease-in-out group-hover:scale-150 text-lg`}
                                             >
-                                                <Icon icon={"heroicons-outline:camera"} />
+                                                <Icon icon={"heroicons-outline:printer"} />
                                             </span>
                                             <span className="ml-2">차트 프린트</span>
                                         </span>
