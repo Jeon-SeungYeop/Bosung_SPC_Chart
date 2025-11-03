@@ -22,6 +22,7 @@ const ProcessQualityTrand = () => {
         grid6: false,
     });
     const updateSearchParams = useMemo(() => CommonFunction.createUpdateSearchParams(setSearchParams), [setSearchParams]);
+    const fileInputRef = useRef(null);
     
     // Modal창 오픈
     const [isModalOpen, setIsModalOpen] = useState(false); // All 적용 X
@@ -237,9 +238,146 @@ const ProcessQualityTrand = () => {
 
     // JSON 불러오기
     const load_json = () => {
-        console.log("ASD")
-        return;
+        if (fileInputRef.current) {
+            fileInputRef.current.value = "";
+            fileInputRef.current.click();
+        }
+    };
+
+    const handleFileChange = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = () => {
+            try {
+                let text = String(reader.result || "");
+                if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+
+                const json = JSON.parse(text);
+                const normalized = validateAndNormalizeScenario(json);
+
+                // 상태 반영
+                applyScenarioToState(normalized);
+
+                alert("시나리오가 성공적으로 불러와졌습니다.");
+            } catch (err) {
+                alert(`시나리오 파일 형식이 올바르지 않습니다.`);
+            }
+        };
+        reader.onerror = () => {
+            alert("파일을 읽는 중 오류가 발생했습니다.");
+        };
+        reader.readAsText(file, "utf-8");
+    };
+
+    const MAX_ROWS = 10;
+    const ALLOWED_DIVISIONS = new Set(["start", "heat", "maintain", "freeze", "unavailable"]);
+    const TH_KEYS = ["온도계1","온도계2","온도계3","온도계4","온도계5","온도계6"];
+
+    function normalizeNumber(v, fieldName) {
+        if (v === "" || v === null || v === undefined) return "";
+        const n = Number(v);
+        if (!Number.isFinite(n)) {
+            throw new Error(`${fieldName} 값이 숫자가 아닙니다: ${v}`);
+        }
+        return n;
     }
+
+    function padRows(rows) {
+        const copy = rows.slice(0, MAX_ROWS);
+        while (copy.length < MAX_ROWS) {
+         copy.push({ temperature: "", time: "", variable: "", division: "unavailable" });
+        }
+        return copy;
+    }
+
+    function validateRow(row, idx, thLabel) {
+        if (typeof row !== "object" || row === null) {
+            throw new Error(`${thLabel}의 ${idx + 1}번째 행이 객체가 아닙니다.`);
+        }
+        const division = row.division;
+        if (!ALLOWED_DIVISIONS.has(division)) {
+            throw new Error(`${thLabel}의 ${idx + 1}번째 행 division값이 올바르지 않습니다: ${division}`);
+        }
+        return {
+            temperature: normalizeNumber(row.temperature, `${thLabel} 행${idx + 1} temperature`),
+            time: normalizeNumber(row.time, `${thLabel} 행${idx + 1} time`),
+            variable: normalizeNumber(row.variable, `${thLabel} 행${idx + 1} variable`),
+            division,
+        };
+    }
+
+    function validateAndNormalizeScenario(json) {
+        if (typeof json !== "object" || json === null) {
+            throw new Error("최상위가 객체(JSON) 형태가 아닙니다.");
+        }
+        if (!("meta" in json) || !("scenarios" in json)) {
+            throw new Error("필수 키(meta, scenarios)가 없습니다.");
+        }
+
+        const meta = json.meta ?? {};
+        const normMeta = {
+            date: meta.date ?? null,
+            cycle: meta.cycle ?? null,
+            amplitude: meta.amplitude ?? null,
+        };
+
+        const scenarios = json.scenarios;
+        if (typeof scenarios !== "object" || scenarios === null) {
+            throw new Error("scenarios가 객체가 아닙니다.");
+        }
+
+        const normScenarios = {};
+        for (const key of TH_KEYS) {
+            if (key in scenarios) {
+                const arr = scenarios[key];
+                if (!Array.isArray(arr)) {
+                    throw new Error(`${key} 값이 배열이 아닙니다.`);
+                }
+                const validated = arr.map((r, i) => validateRow(r, i, key));
+                normScenarios[key] = padRows(validated);
+            }
+        }
+
+        if (Object.keys(normScenarios).length === 0) {
+            throw new Error("적용 가능한 온도계 데이터(온도계1~온도계6)가 없습니다.");
+        }
+
+        return { meta: normMeta, scenarios: normScenarios };
+    }
+
+    function applyScenarioToState({ meta, scenarios }) {
+        setSearchParams((prev) => ({
+            ...prev,
+            date: meta.date ?? "",
+            cycle: meta.cycle ?? "",
+            amplitude: meta.amplitude ?? "",
+            grid1: Boolean(scenarios["온도계1"]),
+            grid2: Boolean(scenarios["온도계2"]),
+            grid3: Boolean(scenarios["온도계3"]),
+            grid4: Boolean(scenarios["온도계4"]),
+            grid5: Boolean(scenarios["온도계5"]),
+            grid6: Boolean(scenarios["온도계6"]),
+    }));
+
+    // 각 그리드 데이터 적용 (없으면 초기 템플릿 유지)
+    const makeDefault = () =>
+        Array.from({ length: MAX_ROWS }, (_, i) => ({
+            temperature: "",
+            time: "",
+            variable: "",
+            division: i === 0 ? "start" : "unavailable",
+        }));
+
+        setGridData1(scenarios["온도계1"] ?? makeDefault());
+        setGridData2(scenarios["온도계2"] ?? makeDefault());
+        setGridData3(scenarios["온도계3"] ?? makeDefault());
+        setGridData4(scenarios["온도계4"] ?? makeDefault());
+        setGridData5(scenarios["온도계5"] ?? makeDefault());
+        setGridData6(scenarios["온도계6"] ?? makeDefault());
+    }
+
 
     // 차트 프린트
     const handleDownload = () => {
@@ -450,6 +588,13 @@ const ProcessQualityTrand = () => {
                                             <span className="ml-2">차트 프린트</span>
                                         </span>
                                     </button>
+                                    <input
+                                        ref={fileInputRef}
+                                        type="file"
+                                        accept="application/json,.json"
+                                        onChange={handleFileChange}
+                                        style={{ display: "none" }}
+                                    />
                                 </div>
                             </Card>
                             <div className="flex flex-wrap items-center justify-between mt-3 w-full">
