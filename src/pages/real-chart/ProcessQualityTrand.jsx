@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import Card from "@/components/ui/Card";
 import LineChart from "@/components/partials/widget/chart/LineChart";
-import { Line_data } from "@/services/constant/data";
 import Icon from "@/components/ui/Icon";
 import Auto_MessageModal from "@/components/autocomponent/common/Auto_MessageModal";
 import {
@@ -21,6 +20,31 @@ const ProcessQualityTrand = () => {
         grid5: false,
         grid6: false,
     });
+    
+    const [chartDatasets, setChartDatasets] = useState([]);
+    
+    const line_data = useMemo(() => {
+        if (chartDatasets.length === 0) {
+            return { labels: [], datasets: [] };
+        }
+        
+        // 가장 긴 labels를 가진 데이터셋 찾기
+        const longestDataset = chartDatasets.reduce((longest, current) => {
+            return (current.labels?.length || 0) > (longest.labels?.length || 0) ? current : longest;
+        }, chartDatasets[0]);
+        
+        return {
+            labels: longestDataset.labels || [],
+            datasets: chartDatasets.map((dataset, idx) => ({
+                label: dataset.label,
+                data: dataset.data,
+                borderColor: `hsl(${idx * 60}, 70%, 50%)`,
+                backgroundColor: `hsla(${idx * 60}, 70%, 50%, 0.1)`,
+                tension: 0.4,
+            }))
+        };
+    }, [chartDatasets]);
+    
     const updateSearchParams = useMemo(() => CommonFunction.createUpdateSearchParams(setSearchParams), [setSearchParams]);
     const fileInputRef = useRef(null);
     
@@ -178,9 +202,199 @@ const ProcessQualityTrand = () => {
         [dropdownData]
     )
 
+    // 시간 포맷 함수 (초 -> 시:분:초)
+    function formatTime(seconds) {
+        const h = Math.floor(seconds / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        const s = Math.floor(seconds % 60);
+        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+
     // 차트 생성
-    const make_chart = () => {
-        if (!searchParams.grid1 && !searchParams.grid2 && !searchParams.grid3 && !searchParams.grid4 && !searchParams.grid5 && !searchParams.grid6) setIsModalOpen(true);
+    function make_chart(griddata) {
+        const start_point = Number(griddata[0].temperature);
+        if (!start_point && start_point !== 0) return null;
+
+        const chartData = [];
+        const labels = [];
+        let currentTemp = start_point;
+        let currentTime = 0; // 초 단위
+        let reachedTime = null; // 180도에 도달한 시간
+
+        // 시작점 추가
+        chartData.push(currentTemp);
+        labels.push(formatTime(currentTime));
+
+        for (let i = 1; i < griddata.length; i++) {
+            const row = griddata[i];
+            
+            if (row.division === 'unavailable') continue;
+
+            const targetTemp = Number(row.temperature);
+            const timeValue = Number(row.time);
+            const variable = Number(row.variable);
+
+            if (row.division === 'maintain') {
+                // 유지: time(분) 동안 현재온도 유지
+                if (!targetTemp && targetTemp !== 0) continue;
+                if (!timeValue) continue;
+
+                const totalSeconds = timeValue * 60;
+                const dataPoints = totalSeconds * 2;
+
+                for (let j = 0; j < dataPoints; j++) {
+                    currentTime += 0.5;
+                    chartData.push(targetTemp);
+                    labels.push(formatTime(currentTime));
+                    
+                    // 180도 도달 체크
+                    if (reachedTime === null && targetTemp >= 200) {
+                        reachedTime = currentTime;
+                    }
+                }
+                currentTemp = targetTemp;
+
+            } else if (row.division === 'heat' || row.division === 'freeze') {
+                if (!targetTemp && targetTemp !== 0) continue;
+                if (!timeValue || !variable) continue;
+
+                const actualTargetTemp = targetTemp;
+                const totalSeconds = timeValue * 3600;
+                const dataPoints = totalSeconds * 2;
+                const tempDiff = actualTargetTemp - currentTemp;
+                const tempPerPoint = tempDiff / dataPoints;
+
+                for (let j = 0; j < dataPoints; j++) {
+                    currentTime += 0.5;
+                    currentTemp += tempPerPoint;
+                    chartData.push(currentTemp);
+                    labels.push(formatTime(currentTime));
+                    
+                    // 180도 도달 체크 (상승 중일 때만)
+                    if (reachedTime === null && currentTemp >= 200 && row.division === 'heat') {
+                        reachedTime = currentTime;
+                    }
+                }
+                currentTemp = actualTargetTemp;
+            }
+        }
+
+        return {
+            labels: labels,
+            data: chartData,
+            reachedTime: reachedTime // 180도 도달 시간 반환
+        };
+    }
+
+    const btn_make_chart = () => {
+        if (!searchParams.grid1 && !searchParams.grid2 && !searchParams.grid3 && !searchParams.grid4 && !searchParams.grid5 && !searchParams.grid6) {
+            setIsModalOpen(true);
+            return;
+        }
+
+        const tempResults = [];
+        
+        // 각 그리드의 차트 데이터 생성
+        if (searchParams.grid1) {
+            const result = make_chart(gridData1);
+            if (result) tempResults.push({ label: '온도계1', ...result });
+        }
+        if (searchParams.grid2) {
+            const result = make_chart(gridData2);
+            if (result) tempResults.push({ label: '온도계2', ...result });
+        }
+        if (searchParams.grid3) {
+            const result = make_chart(gridData3);
+            if (result) tempResults.push({ label: '온도계3', ...result });
+        }
+        if (searchParams.grid4) {
+            const result = make_chart(gridData4);
+            if (result) tempResults.push({ label: '온도계4', ...result });
+        }
+        if (searchParams.grid5) {
+            const result = make_chart(gridData5);
+            if (result) tempResults.push({ label: '온도계5', ...result });
+        }
+        if (searchParams.grid6) {
+            const result = make_chart(gridData6);
+            if (result) tempResults.push({ label: '온도계6', ...result });
+        }
+
+        // 180도에 도달한 차트들만 필터링
+        const chartsReaching = tempResults.filter(r => r.reachedTime !== null);
+        
+        if (chartsReaching.length === 0) {
+            // 180도에 도달한 차트가 없으면 그냥 표시
+            setChartDatasets(tempResults);
+            return;
+        }
+
+        // 가장 늦게 180도에 도달하는 시간 찾기
+        const maxreachedTime = Math.max(...chartsReaching.map(r => r.reachedTime));
+
+        // 각 차트를 동기화
+        const synchronizedResults = tempResults.map(result => {
+            if (result.reachedTime === null) {
+                // 180도에 도달하지 않는 차트는 그대로 유지
+                return result;
+            }
+
+            const timeDiff = maxreachedTime - result.reachedTime;
+            
+            if (timeDiff === 0) {
+                // 가장 늦게 도달한 차트는 그대로
+                return result;
+            }
+
+            // 180도에서 대기하는 포인트 개수 (0.5초마다 1개)
+            const waitPoints = Math.floor(timeDiff * 2);
+            
+            // 180도 도달 시점의 인덱스 찾기
+            let reachIndex = -1;
+            for (let i = 0; i < result.data.length; i++) {
+                const time = i * 0.5;
+                if (time >= result.reachedTime) {
+                    reachIndex = i;
+                    break;
+                }
+            }
+
+            if (reachIndex === -1) return result;
+
+            // 새로운 데이터와 라벨 배열 생성
+            const newData = [];
+            const newLabels = [];
+
+            // 180도 도달 전까지 복사
+            for (let i = 0; i <= reachIndex; i++) {
+                newData.push(result.data[i]);
+                newLabels.push(result.labels[i]);
+            }
+
+            // 180도에서 대기하는 포인트 추가
+            let waitTime = result.reachedTime;
+            for (let i = 0; i < waitPoints; i++) {
+                waitTime += 0.5;
+                newData.push(200);
+                newLabels.push(formatTime(waitTime));
+            }
+
+            // 나머지 포인트 복사 (시간은 조정)
+            for (let i = reachIndex + 1; i < result.data.length; i++) {
+                newData.push(result.data[i]);
+                const originalTime = i * 0.5;
+                const adjustedTime = originalTime + timeDiff;
+                newLabels.push(formatTime(adjustedTime));
+            }
+
+            return {
+                ...result,
+                data: newData,
+                labels: newLabels
+            };
+        });
+
+        setChartDatasets(synchronizedResults);
     }
 
     // JSON 생성(시나리오 저장)
@@ -493,7 +707,7 @@ const ProcessQualityTrand = () => {
                     leftContent={
                         <div className="w-full  sm:w-full lg:pr-4 text-[0.8vw]">
                             <Card noborder>
-                                <LineChart line_data={Line_data} height={leftPanelHeight}/>
+                                <LineChart line_data={line_data} height={leftPanelHeight}/>
                             </Card>
                         </div>
                     }
@@ -525,7 +739,7 @@ const ProcessQualityTrand = () => {
                                         endtxt={true}
                                     />
                                     <button
-                                        onClick={make_chart}
+                                        onClick={btn_make_chart}
                                         className={`btn btn-dark shadow-base2 font-normal btn-sm group 
                                                     bg-[#F1F5F9] text-[#141412] 
                                                     dark:bg-[#0F172A] dark:text-[#DFF6FF] dark:shadow-lg h-[38px]`
