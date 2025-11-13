@@ -23,7 +23,7 @@ ChartJS.register(
   Legend
 );
 
-const LineChart = ({ line_data, height, label = "", labelInterval = 8000 }) => {
+const LineChart = ({ line_data, height, label = "", labelInterval = 300 }) => {
   const [isDark] = useDarkMode();
 
   // 색 지정

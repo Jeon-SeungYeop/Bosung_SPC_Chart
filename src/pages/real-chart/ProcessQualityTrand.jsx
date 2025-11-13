@@ -211,6 +211,7 @@ const ProcessQualityTrand = () => {
     }
 
     // 차트 생성
+    const STEP_SECONDS = 30; // 30초당 1개의 점
     function make_chart(griddata) {
         const start_point = Number(griddata[0].temperature);
         if (!start_point && start_point !== 0) return null;
@@ -219,7 +220,7 @@ const ProcessQualityTrand = () => {
         const labels = [];
         let currentTemp = start_point;
         let currentTime = 0; // 초 단위
-        let reachedTime = null; // 180도에 도달한 시간
+        let reachedTime = null; // 200도(또는 원하는 기준온도)에 도달한 시간
 
         // 시작점 추가
         chartData.push(currentTemp);
@@ -227,27 +228,31 @@ const ProcessQualityTrand = () => {
 
         for (let i = 1; i < griddata.length; i++) {
             const row = griddata[i];
-            
+
             if (row.division === 'unavailable') continue;
 
             const targetTemp = Number(row.temperature);
-            const timeValue = Number(row.time);
-            const variable = Number(row.variable);
+            const timeValue = Number(row.time);      // 분 단위 (유지/입력용)
+            const variable = Number(row.variable);   // 시간당 온도 변화량(℃/h)
 
             if (row.division === 'maintain') {
-                // 유지: time(분) 동안 현재온도 유지
+                // 유지: time(분) 동안 targetTemp 유지
                 if (!targetTemp && targetTemp !== 0) continue;
                 if (!timeValue) continue;
 
-                const totalSeconds = timeValue * 60;
-                const dataPoints = totalSeconds * 2;
+                const totalMinutes = timeValue;          // 분
+                const totalSeconds = totalMinutes * 60;  // 초
+                const dataPoints = Math.max(
+                    1,
+                    Math.round(totalSeconds / STEP_SECONDS)
+                );
 
                 for (let j = 0; j < dataPoints; j++) {
-                    currentTime += 0.5;
+                    currentTime += STEP_SECONDS; // 30초씩 증가
                     chartData.push(targetTemp);
                     labels.push(formatTime(currentTime));
-                    
-                    // 180도 도달 체크
+
+                    // 200도 도달 체크 (유지구간에서도)
                     if (reachedTime === null && targetTemp >= 200) {
                         reachedTime = currentTime;
                     }
@@ -256,33 +261,40 @@ const ProcessQualityTrand = () => {
 
             } else if (row.division === 'heat' || row.division === 'freeze') {
                 if (!targetTemp && targetTemp !== 0) continue;
-                if (!timeValue || !variable) continue;
+                if (!variable) continue; // variable 없으면 계산 불가
 
-                const actualTargetTemp = targetTemp;
-                const totalSeconds = timeValue * 3600;
-                const dataPoints = totalSeconds * 2;
-                const tempDiff = actualTargetTemp - currentTemp;
-                const tempPerPoint = tempDiff / dataPoints;
+                // 가변량 = 1시간당 변화량(℃/h)
+                // 실제 소요 시간(h) = (목표온도 - 현재온도) / 가변량
+                const tempDiff = targetTemp - currentTemp;
+                const actualHours = Math.abs(tempDiff) / variable;
+                const totalMinutes = actualHours * 60;
+                const totalSeconds = totalMinutes * 60;
+                const dataPoints = Math.max(
+                    1,
+                    Math.round(totalSeconds / STEP_SECONDS)
+                );
+
+                const tempPerPoint = tempDiff / dataPoints; // STEP_SECONDS(30초)마다 변화량
 
                 for (let j = 0; j < dataPoints; j++) {
-                    currentTime += 0.5;
+                    currentTime += STEP_SECONDS; // 30초씩 증가
                     currentTemp += tempPerPoint;
                     chartData.push(currentTemp);
                     labels.push(formatTime(currentTime));
-                    
-                    // 180도 도달 체크 (상승 중일 때만)
+
+                    // 200도 도달 체크 (상승 구간일 때만)
                     if (reachedTime === null && currentTemp >= 200 && row.division === 'heat') {
                         reachedTime = currentTime;
                     }
                 }
-                currentTemp = actualTargetTemp;
+                currentTemp = targetTemp;
             }
         }
 
         return {
             labels: labels,
             data: chartData,
-            reachedTime: reachedTime // 180도 도달 시간 반환
+            reachedTime: reachedTime
         };
     }
 
@@ -329,30 +341,29 @@ const ProcessQualityTrand = () => {
             return;
         }
 
-        // 가장 늦게 180도에 도달하는 시간 찾기
+        // 가장 늦게 200도에 도달하는 시간 찾기
         const maxreachedTime = Math.max(...chartsReaching.map(r => r.reachedTime));
 
-        // 각 차트를 동기화
         const synchronizedResults = tempResults.map(result => {
             if (result.reachedTime === null) {
-                // 180도에 도달하지 않는 차트는 그대로 유지
+                // 200도에 도달하지 않는 차트는 그대로 유지
                 return result;
             }
 
             const timeDiff = maxreachedTime - result.reachedTime;
-            
+
             if (timeDiff === 0) {
                 // 가장 늦게 도달한 차트는 그대로
                 return result;
             }
 
-            // 180도에서 대기하는 포인트 개수 (0.5초마다 1개)
-            const waitPoints = Math.floor(timeDiff * 2);
-            
-            // 180도 도달 시점의 인덱스 찾기
+            // 200도에서 대기하는 포인트 개수 (1분마다 1개)
+            const waitPoints = Math.floor(timeDiff / STEP_SECONDS);
+
+            // 200도 도달 시점의 인덱스 찾기
             let reachIndex = -1;
             for (let i = 0; i < result.data.length; i++) {
-                const time = i * 0.5;
+                const time = i * STEP_SECONDS; // 인덱스 * 60초
                 if (time >= result.reachedTime) {
                     reachIndex = i;
                     break;
@@ -361,28 +372,27 @@ const ProcessQualityTrand = () => {
 
             if (reachIndex === -1) return result;
 
-            // 새로운 데이터와 라벨 배열 생성
             const newData = [];
             const newLabels = [];
 
-            // 180도 도달 전까지 복사
+            // 200도 도달 전까지 복사
             for (let i = 0; i <= reachIndex; i++) {
                 newData.push(result.data[i]);
                 newLabels.push(result.labels[i]);
             }
 
-            // 180도에서 대기하는 포인트 추가
+            // 200도에서 대기하는 포인트 추가
             let waitTime = result.reachedTime;
             for (let i = 0; i < waitPoints; i++) {
-                waitTime += 0.5;
+                waitTime += STEP_SECONDS; // 1분씩 증가
                 newData.push(200);
                 newLabels.push(formatTime(waitTime));
             }
 
-            // 나머지 포인트 복사 (시간은 조정)
+            // 나머지 포인트 복사 (시간 보정)
             for (let i = reachIndex + 1; i < result.data.length; i++) {
                 newData.push(result.data[i]);
-                const originalTime = i * 0.5;
+                const originalTime = i * STEP_SECONDS;
                 const adjustedTime = originalTime + timeDiff;
                 newLabels.push(formatTime(adjustedTime));
             }
