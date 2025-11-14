@@ -20,19 +20,19 @@ const ProcessQualityTrand = () => {
         grid5: false,
         grid6: false,
     });
-    
+
     const [chartDatasets, setChartDatasets] = useState([]);
-    
+
     const line_data = useMemo(() => {
         if (chartDatasets.length === 0) {
             return { labels: [], datasets: [] };
         }
-        
+
         // 가장 긴 labels를 가진 데이터셋 찾기
         const longestDataset = chartDatasets.reduce((longest, current) => {
             return (current.labels?.length || 0) > (longest.labels?.length || 0) ? current : longest;
         }, chartDatasets[0]);
-        
+
         return {
             labels: longestDataset.labels || [],
             datasets: chartDatasets.map((dataset, idx) => ({
@@ -44,80 +44,53 @@ const ProcessQualityTrand = () => {
             }))
         };
     }, [chartDatasets]);
-    
+    // 선 위 label 간격
+    const labelInterval = useMemo(() => {
+        const len = line_data.labels?.length || 0;
+
+        if (len === 0) return 1;
+        return Math.floor(len / 3);
+    }, [line_data]);
+
     const updateSearchParams = useMemo(() => CommonFunction.createUpdateSearchParams(setSearchParams), [setSearchParams]);
     const fileInputRef = useRef(null);
-    
+
     // Modal창 오픈
-    const [isModalOpen, setIsModalOpen] = useState(false); // All 적용 X
+    const [isModalOpen, setIsModalOpen] = useState(false);
     const handleCancel = () => {
         setIsModalOpen(false);
     };
 
     // gridData Default
-    const [gridData1, setGridData1] = useState(
+    const makeDefaultGrid = () =>
         Array.from({ length: 10 }, (_, i) => ({
             temperature: "",
             time: "",
             variable: "",
             division: i === 0 ? "start" : "unavailable"
-        }))
-    );
-    const [gridData2, setGridData2] = useState(
-        Array.from({ length: 10 }, (_, i) => ({
-            temperature: "",
-            time: "",
-            variable: "",
-            division: i === 0 ? "start" : "unavailable"
-        }))
-    );
-    const [gridData3, setGridData3] = useState(
-        Array.from({ length: 10 }, (_, i) => ({
-            temperature: "",
-            time: "",
-            variable: "",
-            division: i === 0 ? "start" : "unavailable"
-        }))
-    );
-    const [gridData4, setGridData4] = useState(
-        Array.from({ length: 10 }, (_, i) => ({
-            temperature: "",
-            time: "",
-            variable: "",
-            division: i === 0 ? "start" : "unavailable"
-        }))
-    );
-    const [gridData5, setGridData5] = useState(
-        Array.from({ length: 10 }, (_, i) => ({
-            temperature: "",
-            time: "",
-            variable: "",
-            division: i === 0 ? "start" : "unavailable"
-        }))
-    );
-    const [gridData6, setGridData6] = useState(
-        Array.from({ length: 10 }, (_, i) => ({
-            temperature: "",
-            time: "",
-            variable: "",
-            division: i === 0 ? "start" : "unavailable"
-        }))
-    );
+        }));
+
+    const [gridData1, setGridData1] = useState(makeDefaultGrid);
+    const [gridData2, setGridData2] = useState(makeDefaultGrid);
+    const [gridData3, setGridData3] = useState(makeDefaultGrid);
+    const [gridData4, setGridData4] = useState(makeDefaultGrid);
+    const [gridData5, setGridData5] = useState(makeDefaultGrid);
+    const [gridData6, setGridData6] = useState(makeDefaultGrid);
 
     // 입력부 dropdownData items 지정
     const [dropdownData, setDropdownData] = useState({
-        cycle: { 
+        cycle: {
             items: [
                 { label: "1", value: "1" },
                 { label: "2", value: "2" },
                 { label: "3", value: "3" },
                 { label: "4", value: "4" },
                 { label: "5", value: "5" }
-            ], 
-            mappings: {} 
+            ],
+            mappings: {}
         },
-    });    
-    
+    });
+
     // Column 정의
     const columnDefs = useMemo(
         () => [
@@ -181,8 +154,8 @@ const ProcessQualityTrand = () => {
                 cellEditor: 'agSelectCellEditor',
                 cellEditorParams: (params) => {
                     return {
-                        values: params.node.rowIndex === 0 
-                            ? ['start'] 
+                        values: params.node.rowIndex === 0
+                            ? ['start']
                             : ['heat', 'maintain', 'freeze', 'unavailable']
                     };
                 },
@@ -200,7 +173,7 @@ const ProcessQualityTrand = () => {
             },
         ],
         [dropdownData]
-    )
+    );
 
     // 시간 포맷 함수 (초 -> 시:분:초)
     function formatTime(seconds) {
@@ -210,84 +183,121 @@ const ProcessQualityTrand = () => {
         return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
     }
 
+    // griddata에서 division !== 'unavailable' 인 마지막 행의 온도 반환
+    function getLastValidTemperature(griddata) {
+        for (let i = griddata.length - 1; i >= 0; i--) {
+            const row = griddata[i];
+            if (row.division !== 'unavailable') {
+                const temp = Number(row.temperature);
+                if (!Number.isFinite(temp)) return null;
+                return temp;
+            }
+        }
+        return null; // 유효한 행이 없는 경우
+    }
+
+
     // 차트 생성
     const STEP_SECONDS = 30; // 30초당 1개의 점
-    function make_chart(griddata) {
+    const SYNC_MIN_TEMP = 180; // 동기 기준 온도 최소값
+    const SYNC_MAX_TEMP = 200; // 동기 기준 온도 최대값
+    const IGNORE_SYNC_TEMP = 200; // 이 온도 이상에서 시작하면 동기화 제외
+
+    function make_chart(griddata, cycleCount = 1, syncTarget = SYNC_MAX_TEMP) {
         const start_point = Number(griddata[0].temperature);
         if (!start_point && start_point !== 0) return null;
+
+        // 시작 온도가 200℃ 이상이면 동기화 대상에서 제외
+        const ignoreSync = start_point >= IGNORE_SYNC_TEMP;
 
         const chartData = [];
         const labels = [];
         let currentTemp = start_point;
         let currentTime = 0; // 초 단위
-        let reachedTime = null; // 200도(또는 원하는 기준온도)에 도달한 시간
+        let reachedTime = null; // 기준 온도(syncTarget)에 도달한 시간
 
-        // 시작점 추가
-        chartData.push(currentTemp);
-        labels.push(formatTime(currentTime));
+        // 시작점에서 이미 기준온도 이상이지만 200도 미만인 경우만
+        if (!ignoreSync && start_point >= syncTarget) {
+            reachedTime = 0;
+        }
 
-        for (let i = 1; i < griddata.length; i++) {
-            const row = griddata[i];
+        // 사이클 반복
+        for (let cycle = 0; cycle < cycleCount; cycle++) {
+            // 첫 사이클의 시작점만 추가 (이후 사이클은 이전 마지막점과 연결)
+            if (cycle === 0) {
+                chartData.push(currentTemp);
+                labels.push(formatTime(currentTime));
+            }
 
-            if (row.division === 'unavailable') continue;
+            for (let i = 1; i < griddata.length; i++) {
+                const row = griddata[i];
 
-            const targetTemp = Number(row.temperature);
-            const timeValue = Number(row.time);      // 분 단위 (유지/입력용)
-            const variable = Number(row.variable);   // 시간당 온도 변화량(℃/h)
+                if (row.division === 'unavailable') continue;
+                const targetTemp = Number(row.temperature);
+                const timeValue = Number(row.time);      // 분 단위
+                const variable = Number(row.variable);   // 시간당 온도 변화량(℃/h)
 
-            if (row.division === 'maintain') {
-                // 유지: time(분) 동안 targetTemp 유지
-                if (!targetTemp && targetTemp !== 0) continue;
-                if (!timeValue) continue;
+                if (row.division === 'maintain') {
+                    // 유지: time(분) 동안 targetTemp 유지
+                    if (!targetTemp && targetTemp !== 0) continue;
+                    if (!timeValue) continue;
 
-                const totalMinutes = timeValue;          // 분
-                const totalSeconds = totalMinutes * 60;  // 초
-                const dataPoints = Math.max(
-                    1,
-                    Math.round(totalSeconds / STEP_SECONDS)
-                );
+                    const totalSeconds = timeValue * 60;  // 초
+                    const dataPoints = Math.max(
+                        1,
+                        Math.round(totalSeconds / STEP_SECONDS)
+                    );
 
-                for (let j = 0; j < dataPoints; j++) {
-                    currentTime += STEP_SECONDS; // 30초씩 증가
-                    chartData.push(targetTemp);
-                    labels.push(formatTime(currentTime));
+                    for (let j = 0; j < dataPoints; j++) {
+                        currentTime += STEP_SECONDS; // 30초씩 증가
+                        chartData.push(targetTemp);
+                        labels.push(formatTime(currentTime));
 
-                    // 200도 도달 체크 (유지구간에서도)
-                    if (reachedTime === null && targetTemp >= 200) {
-                        reachedTime = currentTime;
+                        // 기준 온도 도달 체크 (동기화 대상일 때만)
+                        if (
+                            !ignoreSync &&
+                            reachedTime === null &&
+                            targetTemp >= syncTarget
+                        ) {
+                            reachedTime = currentTime;
+                        }
                     }
-                }
-                currentTemp = targetTemp;
+                    currentTemp = targetTemp;
 
-            } else if (row.division === 'heat' || row.division === 'freeze') {
-                if (!targetTemp && targetTemp !== 0) continue;
-                if (!variable) continue; // variable 없으면 계산 불가
+                } else if (row.division === 'heat' || row.division === 'freeze') {
+                    if (!targetTemp && targetTemp !== 0) continue;
+                    if (!variable) continue; // variable 없으면 계산 불가
 
-                // 가변량 = 1시간당 변화량(℃/h)
-                // 실제 소요 시간(h) = (목표온도 - 현재온도) / 가변량
-                const tempDiff = targetTemp - currentTemp;
-                const actualHours = Math.abs(tempDiff) / variable;
-                const totalMinutes = actualHours * 60;
-                const totalSeconds = totalMinutes * 60;
-                const dataPoints = Math.max(
-                    1,
-                    Math.round(totalSeconds / STEP_SECONDS)
-                );
+                    // 가변량 = 1시간당 변화량(℃/h)
+                    // 실제 소요 시간(h) = (목표온도 - 현재온도) / 가변량
+                    const tempDiff = targetTemp - currentTemp;
+                    const actualHours = Math.abs(tempDiff) / variable;
+                    const totalSeconds = actualHours * 3600; // h -> sec
+                    const dataPoints = Math.max(
+                        1,
+                        Math.round(totalSeconds / STEP_SECONDS)
+                    );
 
-                const tempPerPoint = tempDiff / dataPoints; // STEP_SECONDS(30초)마다 변화량
+                    const tempPerPoint = tempDiff / dataPoints; // STEP_SECONDS(30초)마다 변화량
 
-                for (let j = 0; j < dataPoints; j++) {
-                    currentTime += STEP_SECONDS; // 30초씩 증가
-                    currentTemp += tempPerPoint;
-                    chartData.push(currentTemp);
-                    labels.push(formatTime(currentTime));
+                    for (let j = 0; j < dataPoints; j++) {
+                        currentTime += STEP_SECONDS; // 30초씩 증가
+                        currentTemp += tempPerPoint;
+                        chartData.push(currentTemp);
+                        labels.push(formatTime(currentTime));
 
-                    // 200도 도달 체크 (상승 구간일 때만)
-                    if (reachedTime === null && currentTemp >= 200 && row.division === 'heat') {
-                        reachedTime = currentTime;
+                        // 기준 온도 도달 체크 (상승 구간 & 동기화 대상일 때만)
+                        if (
+                            !ignoreSync &&
+                            reachedTime === null &&
+                            row.division === 'heat' &&
+                            currentTemp >= syncTarget
+                        ) {
+                            reachedTime = currentTime;
+                        }
                     }
+                    currentTemp = targetTemp;
                 }
-                currentTemp = targetTemp;
             }
         }
 
@@ -299,113 +309,140 @@ const ProcessQualityTrand = () => {
     }
 
     const btn_make_chart = () => {
+        // 적용 체크 하나도 없으면 모달
         if (!searchParams.grid1 && !searchParams.grid2 && !searchParams.grid3 && !searchParams.grid4 && !searchParams.grid5 && !searchParams.grid6) {
             setIsModalOpen(true);
             return;
         }
 
-        const tempResults = [];
-        
-        // 각 그리드의 차트 데이터 생성
-        if (searchParams.grid1) {
-            const result = make_chart(gridData1);
-            if (result) tempResults.push({ label: '온도계1', ...result });
-        }
-        if (searchParams.grid2) {
-            const result = make_chart(gridData2);
-            if (result) tempResults.push({ label: '온도계2', ...result });
-        }
-        if (searchParams.grid3) {
-            const result = make_chart(gridData3);
-            if (result) tempResults.push({ label: '온도계3', ...result });
-        }
-        if (searchParams.grid4) {
-            const result = make_chart(gridData4);
-            if (result) tempResults.push({ label: '온도계4', ...result });
-        }
-        if (searchParams.grid5) {
-            const result = make_chart(gridData5);
-            if (result) tempResults.push({ label: '온도계5', ...result });
-        }
-        if (searchParams.grid6) {
-            const result = make_chart(gridData6);
-            if (result) tempResults.push({ label: '온도계6', ...result });
+        // 적용 체크된 온도계들 모으기
+        const selectedGrids = [];
+        if (searchParams.grid1) selectedGrids.push({ label: "온도계1", data: gridData1 });
+        if (searchParams.grid2) selectedGrids.push({ label: "온도계2", data: gridData2 });
+        if (searchParams.grid3) selectedGrids.push({ label: "온도계3", data: gridData3 });
+        if (searchParams.grid4) selectedGrids.push({ label: "온도계4", data: gridData4 });
+        if (searchParams.grid5) selectedGrids.push({ label: "온도계5", data: gridData5 });
+        if (searchParams.grid6) selectedGrids.push({ label: "온도계6", data: gridData6 });
+
+        // Cycle 값 (없으면 1)
+        const cycleCount = Number(searchParams.cycle) || 1;
+
+        // 각 griddata의 "unavailable이 아닌 마지막 행" 온도 구하기
+        const lastTemps = [];
+        const missingTemps = [];
+
+        selectedGrids.forEach(({ label, data }) => {
+            const t = getLastValidTemperature(data);
+            if (t === null) {
+                missingTemps.push(label);
+            } else {
+                lastTemps.push({ label, temp: t });
+            }
+        });
+
+        // 마지막 온도 제대로 안 들어간 온도계가 있으면 먼저 알림
+        if (missingTemps.length > 0) {
+            alert(
+                "다음 온도계의 unavailable이 아닌 마지막 행의 온도를 입력해 주세요.\n\n" +
+                missingTemps.join(", ")
+            );
+            return;
         }
 
-        // 180도에 도달한 차트들만 필터링
-        const chartsReaching = tempResults.filter(r => r.reachedTime !== null);
-        
+        // cycle이 2 이상일 때만 마지막 온도 비교
+        if (cycleCount >= 2 && lastTemps.length > 1) {
+            const base = lastTemps[0];
+            const different = lastTemps.filter((x) => x.temp !== base.temp);
+
+            if (different.length > 0) {
+                const baseText = `${base.label}(${base.temp}℃)`;
+                const diffText = different
+                    .map((x) => `${x.label}(${x.temp}℃)`)
+                    .join(", ");
+
+                alert(
+                    "적용된 온도계의 unavailable이 아닌 마지막 행 온도 값이 서로 다릅니다.\n\n" +
+                    `기준: ${baseText}\n` +
+                    `다른 온도: ${diffText}`
+                );
+                return; // 차트 생성 중단
+            }
+        }
+
+        const tempResults = [];
+
+        // 이번 실행에서 사용할 동기 기준 온도 (180~200 랜덤)
+        const syncTarget = SYNC_MIN_TEMP + Math.random() * (SYNC_MAX_TEMP - SYNC_MIN_TEMP);
+
+        // 각 선택된 그리드의 차트 생성
+        selectedGrids.forEach(({ label, data }) => {
+            const result = make_chart(data, cycleCount, syncTarget);
+            if (result) tempResults.push({ label, ...result });
+        });
+
+        if (tempResults.length === 0) {
+            return;
+        }
+
+        // 기준 온도(syncTarget)에 도달한 차트들만 필터링
+        const chartsReaching = tempResults.filter((r) => r.reachedTime !== null);
+
+        // 기준 온도에 도달한 차트가 없으면 그냥 표시
         if (chartsReaching.length === 0) {
-            // 180도에 도달한 차트가 없으면 그냥 표시
             setChartDatasets(tempResults);
             return;
         }
 
-        // 가장 늦게 200도에 도달하는 시간 찾기
-        const maxreachedTime = Math.max(...chartsReaching.map(r => r.reachedTime));
+        // 모든 선이 만나는 시간(가장 늦게 기준 온도에 도달한 시간)
+        const maxReachedTime = Math.max(...chartsReaching.map((r) => r.reachedTime));
 
-        const synchronizedResults = tempResults.map(result => {
+        // 기준 온도에 도달하지 않는 선은 건드리지 않고 그대로 사용
+        const synchronizedResults = tempResults.map((result) => {
             if (result.reachedTime === null) {
-                // 200도에 도달하지 않는 차트는 그대로 유지
                 return result;
             }
 
-            const timeDiff = maxreachedTime - result.reachedTime;
-
-            if (timeDiff === 0) {
-                // 가장 늦게 도달한 차트는 그대로
-                return result;
-            }
-
-            // 200도에서 대기하는 포인트 개수 (1분마다 1개)
-            const waitPoints = Math.floor(timeDiff / STEP_SECONDS);
-
-            // 200도 도달 시점의 인덱스 찾기
-            let reachIndex = -1;
-            for (let i = 0; i < result.data.length; i++) {
-                const time = i * STEP_SECONDS; // 인덱스 * 60초
-                if (time >= result.reachedTime) {
-                    reachIndex = i;
-                    break;
-                }
-            }
-
-            if (reachIndex === -1) return result;
+            const startTemp = Number(result.data[0]); // 시작 온도
+            const meetTime = maxReachedTime;          // 모두가 기준 온도에 도달해야 하는 시간
+            const prePointCount = Math.max(1, Math.round(meetTime / STEP_SECONDS));
 
             const newData = [];
             const newLabels = [];
 
-            // 200도 도달 전까지 복사
-            for (let i = 0; i <= reachIndex; i++) {
-                newData.push(result.data[i]);
-                newLabels.push(result.labels[i]);
+            // 0초 ~ meetTime 까지는 startTemp -> syncTarget 까지 직선 증가
+            for (let i = 0; i <= prePointCount; i++) {
+                const t = i * STEP_SECONDS;
+                const ratio = prePointCount === 0 ? 1 : i / prePointCount;
+                const temp = startTemp + (syncTarget - startTemp) * ratio;
+                newData.push(temp);
+                newLabels.push(formatTime(t));
             }
 
-            // 200도에서 대기하는 포인트 추가
-            let waitTime = result.reachedTime;
-            for (let i = 0; i < waitPoints; i++) {
-                waitTime += STEP_SECONDS; // 1분씩 증가
-                newData.push(200);
-                newLabels.push(formatTime(waitTime));
-            }
+            const originalData = result.data;
+            const originalTotalPoints = originalData.length;
+            const reachIndexOrig = Math.round(result.reachedTime / STEP_SECONDS);
 
-            // 나머지 포인트 복사 (시간 보정)
-            for (let i = reachIndex + 1; i < result.data.length; i++) {
-                newData.push(result.data[i]);
+            // 기존 시나리오에서 기준온도 이후 구간만 이어 붙이기
+            for (let i = reachIndexOrig + 1; i < originalTotalPoints; i++) {
                 const originalTime = i * STEP_SECONDS;
-                const adjustedTime = originalTime + timeDiff;
-                newLabels.push(formatTime(adjustedTime));
+                const delta = originalTime - result.reachedTime;
+                const newTime = meetTime + delta;
+
+                newData.push(originalData[i]);
+                newLabels.push(formatTime(newTime));
             }
 
             return {
                 ...result,
                 data: newData,
-                labels: newLabels
+                labels: newLabels,
+                reachedTime: meetTime,
             };
         });
 
         setChartDatasets(synchronizedResults);
-    }
+    };
+
 
     // JSON 생성(시나리오 저장)
     function downloadJson(data, filename = "scenario.json") { // 한글 깨짐 방지 + JSON 다운로드
@@ -497,7 +534,7 @@ const ProcessQualityTrand = () => {
 
     const MAX_ROWS = 10;
     const ALLOWED_DIVISIONS = new Set(["start", "heat", "maintain", "freeze", "unavailable"]);
-    const TH_KEYS = ["온도계1","온도계2","온도계3","온도계4","온도계5","온도계6"];
+    const TH_KEYS = ["온도계1", "온도계2", "온도계3", "온도계4", "온도계5", "온도계6"];
 
     function normalizeNumber(v, fieldName) {
         if (v === "" || v === null || v === undefined) return "";
@@ -511,7 +548,7 @@ const ProcessQualityTrand = () => {
     function padRows(rows) {
         const copy = rows.slice(0, MAX_ROWS);
         while (copy.length < MAX_ROWS) {
-         copy.push({ temperature: "", time: "", variable: "", division: "unavailable" });
+            copy.push({ temperature: "", time: "", variable: "", division: "unavailable" });
         }
         return copy;
     }
@@ -583,16 +620,15 @@ const ProcessQualityTrand = () => {
             grid4: Boolean(scenarios["온도계4"]),
             grid5: Boolean(scenarios["온도계5"]),
             grid6: Boolean(scenarios["온도계6"]),
-    }));
-
-    // 각 그리드 데이터 적용 (없으면 초기 템플릿 유지)
-    const makeDefault = () =>
-        Array.from({ length: MAX_ROWS }, (_, i) => ({
-            temperature: "",
-            time: "",
-            variable: "",
-            division: i === 0 ? "start" : "unavailable",
         }));
+
+        const makeDefault = () =>
+            Array.from({ length: MAX_ROWS }, (_, i) => ({
+                temperature: "",
+                time: "",
+                variable: "",
+                division: i === 0 ? "start" : "unavailable",
+            }));
 
         setGridData1(scenarios["온도계1"] ?? makeDefault());
         setGridData2(scenarios["온도계2"] ?? makeDefault());
@@ -602,79 +638,36 @@ const ProcessQualityTrand = () => {
         setGridData6(scenarios["온도계6"] ?? makeDefault());
     }
 
-
     // 차트 프린트
     const handleDownload = () => {
-        console.log("C")
-    }
+        console.log("C");
+    };
 
     // 각 계 초기화
     const resetGrid1 = () => {
-        setGridData1(
-            Array.from({ length: 10 }, (_, i) => ({
-                temperature: "",
-                time: "",
-                variable: "",
-                division: i === 0 ? "start" : "unavailable"
-            }))
-        );
-        searchParams.grid1 = false;
-    }
+        setGridData1(makeDefaultGrid());
+        setSearchParams(prev => ({ ...prev, grid1: false }));
+    };
     const resetGrid2 = () => {
-        setGridData2(
-            Array.from({ length: 10 }, (_, i) => ({
-                temperature: "",
-                time: "",
-                variable: "",
-                division: i === 0 ? "start" : "unavailable"
-            }))
-        );
-        searchParams.grid2 = false;
-    }
+        setGridData2(makeDefaultGrid());
+        setSearchParams(prev => ({ ...prev, grid2: false }));
+    };
     const resetGrid3 = () => {
-        setGridData3(
-            Array.from({ length: 10 }, (_, i) => ({
-                temperature: "",
-                time: "",
-                variable: "",
-                division: i === 0 ? "start" : "unavailable"
-            }))
-        );
-        searchParams.grid3 = false;
-    }
+        setGridData3(makeDefaultGrid());
+        setSearchParams(prev => ({ ...prev, grid3: false }));
+    };
     const resetGrid4 = () => {
-        setGridData4(
-            Array.from({ length: 10 }, (_, i) => ({
-                temperature: "",
-                time: "",
-                variable: "",
-                division: i === 0 ? "start" : "unavailable"
-            }))
-        );
-        searchParams.grid4 = false;
-    }
+        setGridData4(makeDefaultGrid());
+        setSearchParams(prev => ({ ...prev, grid4: false }));
+    };
     const resetGrid5 = () => {
-        setGridData5(
-            Array.from({ length: 10 }, (_, i) => ({
-                temperature: "",
-                time: "",
-                variable: "",
-                division: i === 0 ? "start" : "unavailable"
-            }))
-        );
-        searchParams.grid5 = false;
-    }
+        setGridData5(makeDefaultGrid());
+        setSearchParams(prev => ({ ...prev, grid5: false }));
+    };
     const resetGrid6 = () => {
-        setGridData6(
-            Array.from({ length: 10 }, (_, i) => ({
-                temperature: "",
-                time: "",
-                variable: "",
-                division: i === 0 ? "start" : "unavailable"
-            }))
-        );
-        searchParams.grid6 = false;
-    }
+        setGridData6(makeDefaultGrid());
+        setSearchParams(prev => ({ ...prev, grid6: false }));
+    };
 
     // Spliter 높이 설정
     const [leftPanelHeight, setLeftPanelHeight] = useState(400);
@@ -715,14 +708,14 @@ const ProcessQualityTrand = () => {
                     left_width={20}
                     onResize={handleSplitterResize}
                     leftContent={
-                        <div className="w-full  sm:w-full lg:pr-4 text-[0.8vw]">
+                        <div className="w-full sm:w-full lg:pr-4 text-[0.8vw]">
                             <Card noborder>
-                                <LineChart line_data={line_data} height={leftPanelHeight}/>
+                                <LineChart line_data={line_data} height={leftPanelHeight} label={searchParams.date} labelInterval = {labelInterval}/>
                             </Card>
                         </div>
                     }
                     rightContent={
-                        <div className="w-full  sm:w-full lg:pr-4 text-[0.8vw]">
+                        <div className="w-full sm:w-full lg:pr-4 text-[0.8vw]">
                             <Card noborder>
                                 <div className="flex flex-wrap gap-x-12 items-center gap-y-1">
                                     <Auto_Label_Text_Set
@@ -730,7 +723,7 @@ const ProcessQualityTrand = () => {
                                         value={searchParams.date}
                                         onChange={(e) => updateSearchParams("date", e.target.value)}
                                         labelSpacing={"-mr-2"}
-                                        inputWidth="200px"
+                                        inputWidth="210px"
                                     />
                                     <Auto_SearchDropDown
                                         label="Cycle"
@@ -753,7 +746,7 @@ const ProcessQualityTrand = () => {
                                         className={`btn btn-dark shadow-base2 font-normal btn-sm group 
                                                     bg-[#F1F5F9] text-[#141412] 
                                                     dark:bg-[#0F172A] dark:text-[#DFF6FF] dark:shadow-lg h-[38px]`
-                                                }
+                                        }
                                     >
                                         <span className="flex items-center">
                                             <span
@@ -769,7 +762,7 @@ const ProcessQualityTrand = () => {
                                         className={`btn btn-dark shadow-base2 font-normal btn-sm group 
                                                     bg-[#F1F5F9] text-[#141412] 
                                                     dark:bg-[#0F172A] dark:text-[#DFF6FF] dark:shadow-lg h-[38px]`
-                                                }
+                                        }
                                     >
                                         <span className="flex items-center">
                                             <span
@@ -785,7 +778,7 @@ const ProcessQualityTrand = () => {
                                         className={`btn btn-dark shadow-base2 font-normal btn-sm group 
                                                     bg-[#F1F5F9] text-[#141412] 
                                                     dark:bg-[#0F172A] dark:text-[#DFF6FF] dark:shadow-lg h-[38px]`
-                                                }
+                                        }
                                     >
                                         <span className="flex items-center">
                                             <span
@@ -801,7 +794,7 @@ const ProcessQualityTrand = () => {
                                         className={`btn btn-dark shadow-base2 font-normal btn-sm group 
                                                     bg-[#F1F5F9] text-[#141412] 
                                                     dark:bg-[#0F172A] dark:text-[#DFF6FF] dark:shadow-lg h-[38px]`
-                                                }
+                                        }
                                     >
                                         <span className="flex items-center">
                                             <span
@@ -846,7 +839,7 @@ const ProcessQualityTrand = () => {
                                                         className={`btn btn-dark shadow-base2 font-normal btn-sm group 
                                                                     bg-[#F1F5F9] text-[#141412] 
                                                                     dark:bg-[#0F172A] dark:text-[#DFF6FF] dark:shadow-lg h-[38px]`
-                                                                }
+                                                        }
                                                     >
                                                         <span className="flex items-center">
                                                             <span
@@ -901,7 +894,7 @@ const ProcessQualityTrand = () => {
                                                         className={`btn btn-dark shadow-base2 font-normal btn-sm group 
                                                                     bg-[#F1F5F9] text-[#141412] 
                                                                     dark:bg-[#0F172A] dark:text-[#DFF6FF] dark:shadow-lg h-[38px]`
-                                                                }
+                                                        }
                                                     >
                                                         <span className="flex items-center">
                                                             <span
@@ -956,7 +949,7 @@ const ProcessQualityTrand = () => {
                                                         className={`btn btn-dark shadow-base2 font-normal btn-sm group 
                                                                     bg-[#F1F5F9] text-[#141412] 
                                                                     dark:bg-[#0F172A] dark:text-[#DFF6FF] dark:shadow-lg h-[38px]`
-                                                                }
+                                                        }
                                                     >
                                                         <span className="flex items-center">
                                                             <span
@@ -1011,7 +1004,7 @@ const ProcessQualityTrand = () => {
                                                         className={`btn btn-dark shadow-base2 font-normal btn-sm group 
                                                                     bg-[#F1F5F9] text-[#141412] 
                                                                     dark:bg-[#0F172A] dark:text-[#DFF6FF] dark:shadow-lg h-[38px]`
-                                                                }
+                                                        }
                                                     >
                                                         <span className="flex items-center">
                                                             <span
@@ -1066,7 +1059,7 @@ const ProcessQualityTrand = () => {
                                                         className={`btn btn-dark shadow-base2 font-normal btn-sm group 
                                                                     bg-[#F1F5F9] text-[#141412] 
                                                                     dark:bg-[#0F172A] dark:text-[#DFF6FF] dark:shadow-lg h-[38px]`
-                                                                }
+                                                        }
                                                     >
                                                         <span className="flex items-center">
                                                             <span
@@ -1121,7 +1114,7 @@ const ProcessQualityTrand = () => {
                                                         className={`btn btn-dark shadow-base2 font-normal btn-sm group 
                                                                     bg-[#F1F5F9] text-[#141412] 
                                                                     dark:bg-[#0F172A] dark:text-[#DFF6FF] dark:shadow-lg h-[38px]`
-                                                                }
+                                                        }
                                                     >
                                                         <span className="flex items-center">
                                                             <span
@@ -1158,7 +1151,7 @@ const ProcessQualityTrand = () => {
                 />
             </div>
         </div>
-    )
+    );
 };
 
 export default ProcessQualityTrand;
