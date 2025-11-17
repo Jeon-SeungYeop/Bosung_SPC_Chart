@@ -70,7 +70,7 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 300 }) => {
     return { labels, datasets: ds };
   }, [line_data, palette]);
 
-  // yMin/yMax 먼저 계산 (10 단위로 바닥/천장 맞춤)
+  // y 범위: 최소 = min * 0.8 (0보다 작으면 0), 최대 = max * 1.2
   const { yMin, yMax } = useMemo(() => {
     const ds = Array.isArray(line_data?.datasets) ? line_data.datasets : [];
     const all = ds
@@ -78,18 +78,34 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 300 }) => {
       .filter((v) => typeof v === "number" && !isNaN(v));
 
     // 데이터 없을 때 기본 범위
-    if (all.length === 0) return { yMin: 0, yMax: 100 };
+    if (all.length === 0) return { yMin: 0, yMax: 90 };
 
-    const min = Math.min(...all);
-    const max = Math.max(...all);
+    let min = Math.min(...all);
+    let max = Math.max(...all);
 
-    const floor10 = Math.floor(min / 10) * 10;
-    const ceil10 = Math.ceil(max / 10) * 10;
-
-    if (floor10 === ceil10) {
-      return { yMin: floor10 - 10, yMax: ceil10 + 10 };
+    // 전부 같은 값이면 최소 span 확보
+    if (min === max) {
+      min -= 10;
+      max += 10;
     }
-    return { yMin: floor10, yMax: ceil10 };
+
+    // 스케일 적용
+    let scaledMin = min * 0.8;
+    let scaledMax = max * 1.1;
+
+    // 최소값 0 이하이면 0까지만
+    if (scaledMin < 0) scaledMin = 0;
+
+    // 30 단위로 바닥/천장 정렬
+    const floor30 = Math.floor(scaledMin / 30) * 30;
+    let ceil30 = Math.ceil(scaledMax / 30) * 30;
+
+    // 최소/최대가 같아지지 않도록 한 칸이라도 확보
+    if (ceil30 <= floor30) {
+      ceil30 = floor30 + 30;
+    }
+
+    return { yMin: floor30, yMax: ceil30 };
   }, [line_data]);
 
   // 첫 포인트 상단 라벨
@@ -210,10 +226,9 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 300 }) => {
           },
           ticks: {
             autoSkip: false,
-            stepSize: 10,      // 그리드/눈금 간격 10
+            stepSize: 10, // 30단위 tick
             precision: 0,
             color: isDark ? "#cbd5e1" : "#475569",
-            // 라벨은 30° 단위만 표시
             callback: function (value) {
               const v = Math.round(Number(value));
               return v % 30 === 0 ? `${v}°C` : "";

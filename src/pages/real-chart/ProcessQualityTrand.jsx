@@ -7,6 +7,7 @@ import {
     Auto_Label_Text_Set, CommonFunction, Auto_SearchDropDown, Auto_Spliter
 } from "@/components/autocomponent";
 import { AgGridReact } from "ag-grid-react";
+import html2canvas from "html2canvas";
 
 const ProcessQualityTrand = () => {
     const [searchParams, setSearchParams] = useState({
@@ -203,7 +204,15 @@ const ProcessQualityTrand = () => {
     const SYNC_MAX_TEMP = 200; // 동기 기준 온도 최대값
     const IGNORE_SYNC_TEMP = 200; // 이 온도 이상에서 시작하면 동기화 제외
 
-    function make_chart(griddata, cycleCount = 1, syncTarget = SYNC_MAX_TEMP) {
+    // amplitude(진폭) 값에 따른 랜덤 변동 함수
+    function applyAmplitude(temp, amplitude) {
+        if (!amplitude || amplitude === 0) return temp;
+        const range = Number(amplitude);
+        const randomOffset = (Math.random() * 2 - 1) * range; // -range ~ +range
+        return temp + randomOffset;
+    }
+
+    function make_chart(griddata, cycleCount = 1, syncTarget = SYNC_MAX_TEMP, amplitude = 0) {
         const start_point = Number(griddata[0].temperature);
         if (!start_point && start_point !== 0) return null;
 
@@ -225,7 +234,7 @@ const ProcessQualityTrand = () => {
         for (let cycle = 0; cycle < cycleCount; cycle++) {
             // 첫 사이클의 시작점만 추가 (이후 사이클은 이전 마지막점과 연결)
             if (cycle === 0) {
-                chartData.push(currentTemp);
+                chartData.push(start_point);
                 labels.push(formatTime(currentTime));
             }
 
@@ -250,7 +259,7 @@ const ProcessQualityTrand = () => {
 
                     for (let j = 0; j < dataPoints; j++) {
                         currentTime += STEP_SECONDS; // 30초씩 증가
-                        chartData.push(targetTemp);
+                        chartData.push(applyAmplitude(targetTemp, amplitude));
                         labels.push(formatTime(currentTime));
 
                         // 기준 온도 도달 체크 (동기화 대상일 때만)
@@ -283,7 +292,7 @@ const ProcessQualityTrand = () => {
                     for (let j = 0; j < dataPoints; j++) {
                         currentTime += STEP_SECONDS; // 30초씩 증가
                         currentTemp += tempPerPoint;
-                        chartData.push(currentTemp);
+                        chartData.push(applyAmplitude(currentTemp, amplitude));
                         labels.push(formatTime(currentTime));
 
                         // 기준 온도 도달 체크 (상승 구간 & 동기화 대상일 때만)
@@ -326,6 +335,9 @@ const ProcessQualityTrand = () => {
 
         // Cycle 값 (없으면 1)
         const cycleCount = Number(searchParams.cycle) || 1;
+        
+        // Amplitude 값 (없으면 0)
+        const amplitudeValue = Number(searchParams.amplitude) || 0;
 
         // 각 griddata의 "unavailable이 아닌 마지막 행" 온도 구하기
         const lastTemps = [];
@@ -343,7 +355,7 @@ const ProcessQualityTrand = () => {
         // 마지막 온도 제대로 안 들어간 온도계가 있으면 먼저 알림
         if (missingTemps.length > 0) {
             alert(
-                "다음 온도계의 unavailable이 아닌 마지막 행의 온도를 입력해 주세요.\n\n" +
+                "다음 온도계의 사용안함이 아닌 마지막 행의 온도를 입력해 주세요.\n\n" +
                 missingTemps.join(", ")
             );
             return;
@@ -361,7 +373,7 @@ const ProcessQualityTrand = () => {
                     .join(", ");
 
                 alert(
-                    "적용된 온도계의 unavailable이 아닌 마지막 행 온도 값이 서로 다릅니다.\n\n" +
+                    "적용된 온도계의 사용안함이 아닌 마지막 행 온도 값이 서로 다릅니다.\n\n" +
                     `기준: ${baseText}\n` +
                     `다른 온도: ${diffText}`
                 );
@@ -371,13 +383,19 @@ const ProcessQualityTrand = () => {
 
         const tempResults = [];
 
-        // 이번 실행에서 사용할 동기 기준 온도 (180~200 랜덤)
-        const syncTarget = SYNC_MIN_TEMP + Math.random() * (SYNC_MAX_TEMP - SYNC_MIN_TEMP);
+        // 동기 기준 온도 (180~200 랜덤)
+        const fixedSyncTarget = SYNC_MIN_TEMP + Math.random() * (SYNC_MAX_TEMP - SYNC_MIN_TEMP);
 
         // 각 선택된 그리드의 차트 생성
         selectedGrids.forEach(({ label, data }) => {
-            const result = make_chart(data, cycleCount, syncTarget);
-            if (result) tempResults.push({ label, ...result });
+            const result = make_chart(data, cycleCount, fixedSyncTarget, amplitudeValue);
+            if (result) {
+                tempResults.push({
+                    label,
+                    startPoint: Number(data[0].temperature),
+                    ...result,
+                });
+            }
         });
 
         if (tempResults.length === 0) {
@@ -402,7 +420,7 @@ const ProcessQualityTrand = () => {
                 return result;
             }
 
-            const startTemp = Number(result.data[0]); // 시작 온도
+            const startTemp = Number(result.startPoint);
             const meetTime = maxReachedTime;          // 모두가 기준 온도에 도달해야 하는 시간
             const prePointCount = Math.max(1, Math.round(meetTime / STEP_SECONDS));
 
@@ -413,7 +431,10 @@ const ProcessQualityTrand = () => {
             for (let i = 0; i <= prePointCount; i++) {
                 const t = i * STEP_SECONDS;
                 const ratio = prePointCount === 0 ? 1 : i / prePointCount;
-                const temp = startTemp + (syncTarget - startTemp) * ratio;
+                const baseTemp = startTemp + (fixedSyncTarget - startTemp) * ratio;
+
+                // 0초(첫 점)는 amplitude 미적용, 이후부터만 적용
+                const temp = i === 0 ? startTemp : applyAmplitude(baseTemp, amplitudeValue);
                 newData.push(temp);
                 newLabels.push(formatTime(t));
             }
@@ -442,7 +463,6 @@ const ProcessQualityTrand = () => {
 
         setChartDatasets(synchronizedResults);
     };
-
 
     // JSON 생성(시나리오 저장)
     function downloadJson(data, filename = "scenario.json") { // 한글 깨짐 방지 + JSON 다운로드
@@ -639,8 +659,145 @@ const ProcessQualityTrand = () => {
     }
 
     // 차트 프린트
-    const handleDownload = () => {
-        console.log("C");
+    const divRef = useRef();
+    const title = "차트 생성";
+
+    const openPrintPreviewWithBlob = ({ blobUrl, title, pageW, pageH, isLandscape }) => {
+        const html = `
+        <!DOCTYPE html>
+            <html>
+                <head>
+                    <meta charset="utf-8" />
+                    <title>${title}</title>
+                    <style>
+                        :root { --page-w:${pageW}; --page-h:${pageH}; }
+                        html, body { margin:0; padding:0; }
+                        body {
+                            background:#f5f5f5;
+                            display:flex;
+                            flex-direction:column;
+                            align-items:center;
+                            gap:16px;
+                            padding:20px;
+                        }
+                        .print-btn {
+                            padding:10px 20px;
+                            border:none; border-radius:6px;
+                            cursor:pointer;
+                            background:#10b981; color:#fff; font-size:16px;
+                        }
+                        .print-btn:hover { background:#059669; }
+                        .page {
+                            width:var(--page-w);
+                            height:var(--page-h);
+                            background:#fff;
+                            box-shadow:0 2px 8px rgba(0,0,0,.1);
+                            display:flex; align-items:center; justify-content:center;
+                        }
+                        .page > img {
+                            width:100%;
+                            height:100%;
+                            display:block;
+                            object-fit:contain;
+                            page-break-inside: avoid;
+                            break-inside: avoid;
+                        }
+                        @media print {
+                            html, body { margin:0; padding:0; background:#fff; }
+                            .print-btn { display:none; }
+                            .page { box-shadow:none; margin:0; }
+                        }
+                        @page {
+                            size: A4 ${isLandscape ? "landscape" : "portrait"};
+                            margin: 0;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="page">
+                        <img id="img" src="${blobUrl}" alt="${title}" />
+                    </div>
+                    <button class="print-btn" onclick="window.print()">🖨️ 프린트</button>
+                    <script>
+                        window.addEventListener('beforeunload', () => {
+                        try { URL.revokeObjectURL('${blobUrl}'); } catch(e){}
+                        try {
+                            if (window.name && window.name.startsWith('blob:')) {
+                            URL.revokeObjectURL(window.name);
+                            }
+                        } catch(e){}
+                        });
+                    </script>
+                </body>
+            </html>`;
+
+        const htmlBlob = new Blob([html], { type: "text/html" });
+        const htmlUrl = URL.createObjectURL(htmlBlob);
+
+        const w = window.open(htmlUrl, "_blank", "noopener");
+        if (w) w.name = htmlUrl;
+
+        const timer = setInterval(() => {
+        if (!w || w.closed) {
+            clearInterval(timer);
+            try { URL.revokeObjectURL(blobUrl); } catch(e){}
+            try { URL.revokeObjectURL(htmlUrl); } catch(e){}
+        }
+        }, 1000);
+    };
+
+    const handleDownload = async (orientation = "portrait") => { // portrait : 세로로 긴 , landscape : 가로로 긴
+        if (!divRef.current) return;
+
+        try {
+            const src = divRef.current;
+            const srcCanvas = await html2canvas(src, {
+                scale: 3,
+                backgroundColor: "#fff",
+                useCORS: true,
+                willReadFrequently: true,
+            });
+
+            const DPI = 300;
+            const A4_PX = {
+                portrait: { w: Math.round(8.27 * DPI), h: Math.round(11.69 * DPI) },
+                landscape: { w: Math.round(11.69 * DPI), h: Math.round(8.27 * DPI) },
+            };
+            const { w: A4W, h: A4H } = A4_PX[orientation];
+
+            const MARGIN_MM = 10;
+            const mmToPx = (mm) => Math.round((mm / 25.4) * DPI);
+            const margin = mmToPx(MARGIN_MM);
+            const contentW = A4W - margin * 2;
+            const contentH = A4H - margin * 2;
+
+            const scale = Math.min(contentW / srcCanvas.width, contentH / srcCanvas.height);
+            const drawW = Math.round(srcCanvas.width * scale);
+            const drawH = Math.round(srcCanvas.height * scale);
+            const offsetX = Math.round((A4W - drawW) / 2);
+            const offsetY = Math.round((A4H - drawH) / 2);
+
+            const out = document.createElement("canvas");
+            out.width = A4W;
+            out.height = A4H;
+            const ctx = out.getContext("2d");
+            if (!ctx) return;
+            ctx.fillStyle = "#FFFFFF";
+            ctx.fillRect(0, 0, A4W, A4H);
+            ctx.drawImage(srcCanvas, offsetX, offsetY, drawW, drawH);
+
+            out.toBlob((blob) => {
+                if (!blob) return;
+                const blobUrl = URL.createObjectURL(blob);
+                const isLandscape = orientation === "landscape";
+                const pageW = isLandscape ? "297mm" : "210mm";
+                const pageH = isLandscape ? "210mm" : "297mm";
+
+                openPrintPreviewWithBlob({ blobUrl, title, pageW, pageH, isLandscape });
+            }, "image/png");
+        } catch (error) {
+            console.error("Error converting div to A4 image:", error);
+        }
     };
 
     // 각 계 초기화
@@ -684,11 +841,11 @@ const ProcessQualityTrand = () => {
         <div className="space-x-5 p-2">
             {isModalOpen && (
                 <Auto_MessageModal
-                    activeModal={isModalOpen} // 열림 닫힘 여부 status
-                    onClose={handleCancel} // 닫힘 버튼 클릭 액션
-                    title="적용 실패" // title 
-                    message={"적용된 데이터가 없습니다."} // 메시지
-                    answertype="OK"  // 확인 버튼 . 
+                    activeModal={isModalOpen}
+                    onClose={handleCancel}
+                    title="적용 실패"
+                    message={"적용된 데이터가 없습니다."}
+                    answertype="OK"
                     headericon={"failed"}
                 />
             )}
@@ -708,7 +865,7 @@ const ProcessQualityTrand = () => {
                     left_width={20}
                     onResize={handleSplitterResize}
                     leftContent={
-                        <div className="w-full sm:w-full lg:pr-4 text-[0.8vw]">
+                        <div ref={divRef} className="w-full sm:w-full lg:pr-4 text-[0.8vw]">
                             <Card noborder>
                                 <LineChart line_data={line_data} height={leftPanelHeight} label={searchParams.date} labelInterval = {labelInterval}/>
                             </Card>
@@ -732,9 +889,10 @@ const ProcessQualityTrand = () => {
                                         horizontal
                                         dropDownData={dropdownData.cycle.items}
                                         labelSpacing={'-mr-2'}
+                                        value={searchParams.cycle}
                                     />
                                     <Auto_Label_Text_Set
-                                        label="진폭"
+                                        label="진폭(±)"
                                         value={searchParams.amplitude}
                                         onChange={(e) => updateSearchParams("amplitude", e.target.value)}
                                         labelSpacing={"-mr-8"}
@@ -790,7 +948,7 @@ const ProcessQualityTrand = () => {
                                         </span>
                                     </button>
                                     <button
-                                        onClick={handleDownload}
+                                        onClick={() => handleDownload("landscape")}
                                         className={`btn btn-dark shadow-base2 font-normal btn-sm group 
                                                     bg-[#F1F5F9] text-[#141412] 
                                                     dark:bg-[#0F172A] dark:text-[#DFF6FF] dark:shadow-lg h-[38px]`
