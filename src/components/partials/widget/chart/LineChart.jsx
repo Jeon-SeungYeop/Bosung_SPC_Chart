@@ -188,6 +188,16 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 300 }) => {
     [isDark, labelInterval]
   );
 
+  // 시간 문자열을 초로 변환하는 헬퍼 함수
+  const parseTimeToSeconds = (timeStr) => {
+    const match = /^(\d+):(\d{2}):(\d{2})$/.exec(String(timeStr));
+    if (!match) return null;
+    const hours = parseInt(match[1], 10);
+    const minutes = parseInt(match[2], 10);
+    const seconds = parseInt(match[3], 10);
+    return hours * 3600 + minutes * 60 + seconds;
+  };
+
   const options = useMemo(
     () => ({
       responsive: true,
@@ -195,7 +205,6 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 300 }) => {
       plugins: {
         title: {
           display: true,
-          text: "Chart NO.EH00001",
           position: "top",
           align: "center",
           color: isDark ? "#cbd5e1" : "#475569",
@@ -226,7 +235,7 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 300 }) => {
           },
           ticks: {
             autoSkip: false,
-            stepSize: 10, // 30단위 tick
+            stepSize: 10,
             precision: 0,
             color: isDark ? "#cbd5e1" : "#475569",
             callback: function (value) {
@@ -237,17 +246,16 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 300 }) => {
         },
         x: {
           grid: {
-            // HH:MM:SS 라벨 기준 30분 간격 그리드 보이게
             color: (ctx) => {
               const idx = ctx?.tick?.value;
               const labels = ctx?.chart?.data?.labels ?? [];
               const raw = labels[idx];
-              const m = /^(\d{2}):(\d{2}):(\d{2})$/.exec(String(raw));
-              if (!m) return "transparent";
-              const minutes = parseInt(m[2], 10);
-              const seconds = parseInt(m[3], 10);
-              // 30분 간격(00분, 30분)일 때 그리드 표시
-              const show = seconds === 0 && minutes % 30 === 0;
+              const totalSeconds = parseTimeToSeconds(raw);
+
+              if (totalSeconds === null) return "transparent";
+
+              // 30분(1800초) 간격마다 그리드 표시
+              const show = totalSeconds % 1800 === 0;
               return show ? (isDark ? "#334155" : "#e2e8f0") : "transparent";
             },
           },
@@ -258,13 +266,17 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 300 }) => {
             callback: function (value) {
               const label = this.getLabelForValue(value);
               if (!label) return "";
-              const match = /^(\d{2}):(\d{2}):(\d{2})$/.exec(label);
-              if (!match) return "";
-              const hours = match[1];
-              const minutes = parseInt(match[2], 10);
-              const seconds = parseInt(match[3], 10);
-              // 정각(00:00)일 때만 시간만 표시
-              return minutes === 0 && seconds === 0 ? `${hours}` : "";
+
+              const totalSeconds = parseTimeToSeconds(label);
+              if (totalSeconds === null) return "";
+
+              // 1시간(3600초) 간격마다 시간 표시
+              if (totalSeconds % 3600 === 0) {
+                const hours = Math.floor(totalSeconds / 3600);
+                return `${hours}`;
+              }
+              
+              return "";
             },
           },
         },
@@ -275,7 +287,7 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 300 }) => {
 
   return (
     <div style={{ height: height ?? 350 }}>
-      <Line key={label} options={options} data={data} plugins={[datePlugin, pointLegendPlugin]} />
+      <Line key={label} options={options} data={data} plugins={[datePlugin]} />  {/*라인에 label 추가시 plugins*/}
     </div>
   );
 };

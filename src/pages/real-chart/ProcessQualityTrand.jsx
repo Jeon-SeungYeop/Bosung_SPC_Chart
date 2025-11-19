@@ -738,16 +738,20 @@ const ProcessQualityTrand = () => {
         if (w) w.name = htmlUrl;
 
         const timer = setInterval(() => {
-        if (!w || w.closed) {
-            clearInterval(timer);
-            try { URL.revokeObjectURL(blobUrl); } catch(e){}
-            try { URL.revokeObjectURL(htmlUrl); } catch(e){}
-        }
+            if (!w || w.closed) {
+                clearInterval(timer);
+                try { URL.revokeObjectURL(blobUrl); } catch(e){}
+                try { URL.revokeObjectURL(htmlUrl); } catch(e){}
+            }
         }, 1000);
     };
 
     const handleDownload = async (orientation = "portrait") => { // portrait : 세로로 긴 , landscape : 가로로 긴
         if (!divRef.current) return;
+
+        // 차트 크기 조절 후 잠시 대기
+        setLeftPanelHeight(1500);
+        await new Promise(r => setTimeout(r, 100));
 
         try {
             const src = divRef.current;
@@ -826,8 +830,14 @@ const ProcessQualityTrand = () => {
         setSearchParams(prev => ({ ...prev, grid6: false }));
     };
 
+    // 차트 크기 초기화
+    const reset_chart_size = () => {
+        setLeftPanelHeight(400);
+        setSplitKey((prev) => prev + 1);
+    }
     // Spliter 높이 설정
     const [leftPanelHeight, setLeftPanelHeight] = useState(400);
+    const [splitKey, setSplitKey] = useState(0);
     const handleSplitterResize = useCallback((event) => {
         const totalHeight = 1800;
         const panelHeight = (totalHeight * event.sizes[0]) / 100;
@@ -861,6 +871,7 @@ const ProcessQualityTrand = () => {
             </style>
             <div className="items-center">
                 <Auto_Spliter
+                    key={splitKey}
                     vertical={true}
                     left_width={20}
                     onResize={handleSplitterResize}
@@ -961,6 +972,22 @@ const ProcessQualityTrand = () => {
                                                 <Icon icon={"heroicons-outline:printer"} />
                                             </span>
                                             <span className="ml-2">차트 프린트</span>
+                                        </span>
+                                    </button>
+                                    <button
+                                        onClick={reset_chart_size}
+                                        className={`btn btn-dark shadow-base2 font-normal btn-sm group 
+                                                    bg-[#F1F5F9] text-[#141412] 
+                                                    dark:bg-[#0F172A] dark:text-[#DFF6FF] dark:shadow-lg h-[38px]`
+                                        }
+                                    >
+                                        <span className="flex items-center">
+                                            <span
+                                                className={`transition-transform duration-300 ease-in-out group-hover:scale-150 text-lg`}
+                                            >
+                                                <Icon icon={"heroicons-outline:arrow-path"} />
+                                            </span>
+                                            <span className="ml-2">차트 크기 초기화</span>
                                         </span>
                                     </button>
                                     <input
