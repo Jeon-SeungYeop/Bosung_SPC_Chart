@@ -197,12 +197,8 @@ const ProcessQualityTrand = () => {
         return null; // 유효한 행이 없는 경우
     }
 
-
     // 차트 생성
     const STEP_SECONDS = 30; // 30초당 1개의 점
-    const SYNC_MIN_TEMP = 180; // 동기 기준 온도 최소값
-    const SYNC_MAX_TEMP = 200; // 동기 기준 온도 최대값
-    const IGNORE_SYNC_TEMP = 200; // 이 온도 이상에서 시작하면 동기화 제외
 
     // amplitude(진폭) 값에 따른 랜덤 변동 함수
     function applyAmplitude(temp, amplitude) {
@@ -212,23 +208,14 @@ const ProcessQualityTrand = () => {
         return temp + randomOffset;
     }
 
-    function make_chart(griddata, cycleCount = 1, syncTarget = SYNC_MAX_TEMP, amplitude = 0) {
+    function make_chart(griddata, cycleCount = 1, amplitude = 0) {
         const start_point = Number(griddata[0].temperature);
         if (!start_point && start_point !== 0) return null;
-
-        // 시작 온도가 200℃ 이상이면 동기화 대상에서 제외
-        const ignoreSync = start_point >= IGNORE_SYNC_TEMP;
 
         const chartData = [];
         const labels = [];
         let currentTemp = start_point;
         let currentTime = 0; // 초 단위
-        let reachedTime = null; // 기준 온도(syncTarget)에 도달한 시간
-
-        // 시작점에서 이미 기준온도 이상이지만 200도 미만인 경우만
-        if (!ignoreSync && start_point >= syncTarget) {
-            reachedTime = 0;
-        }
 
         // 사이클 반복
         for (let cycle = 0; cycle < cycleCount; cycle++) {
@@ -261,18 +248,8 @@ const ProcessQualityTrand = () => {
                         currentTime += STEP_SECONDS; // 30초씩 증가
                         chartData.push(applyAmplitude(targetTemp, amplitude));
                         labels.push(formatTime(currentTime));
-
-                        // 기준 온도 도달 체크 (동기화 대상일 때만)
-                        if (
-                            !ignoreSync &&
-                            reachedTime === null &&
-                            targetTemp >= syncTarget
-                        ) {
-                            reachedTime = currentTime;
-                        }
                     }
                     currentTemp = targetTemp;
-
                 } else if (row.division === 'heat' || row.division === 'freeze') {
                     if (!targetTemp && targetTemp !== 0) continue;
                     if (!variable) continue; // variable 없으면 계산 불가
@@ -294,16 +271,6 @@ const ProcessQualityTrand = () => {
                         currentTemp += tempPerPoint;
                         chartData.push(applyAmplitude(currentTemp, amplitude));
                         labels.push(formatTime(currentTime));
-
-                        // 기준 온도 도달 체크 (상승 구간 & 동기화 대상일 때만)
-                        if (
-                            !ignoreSync &&
-                            reachedTime === null &&
-                            row.division === 'heat' &&
-                            currentTemp >= syncTarget
-                        ) {
-                            reachedTime = currentTime;
-                        }
                     }
                     currentTemp = targetTemp;
                 }
@@ -313,7 +280,6 @@ const ProcessQualityTrand = () => {
         return {
             labels: labels,
             data: chartData,
-            reachedTime: reachedTime
         };
     }
 
@@ -335,7 +301,7 @@ const ProcessQualityTrand = () => {
 
         // Cycle 값 (없으면 1)
         const cycleCount = Number(searchParams.cycle) || 1;
-        
+
         // Amplitude 값 (없으면 0)
         const amplitudeValue = Number(searchParams.amplitude) || 0;
 
@@ -383,16 +349,12 @@ const ProcessQualityTrand = () => {
 
         const tempResults = [];
 
-        // 동기 기준 온도 (180~200 랜덤)
-        const fixedSyncTarget = SYNC_MIN_TEMP + Math.random() * (SYNC_MAX_TEMP - SYNC_MIN_TEMP);
-
         // 각 선택된 그리드의 차트 생성
         selectedGrids.forEach(({ label, data }) => {
-            const result = make_chart(data, cycleCount, fixedSyncTarget, amplitudeValue);
+            const result = make_chart(data, cycleCount, amplitudeValue);
             if (result) {
                 tempResults.push({
                     label,
-                    startPoint: Number(data[0].temperature),
                     ...result,
                 });
             }
@@ -402,66 +364,8 @@ const ProcessQualityTrand = () => {
             return;
         }
 
-        // 기준 온도(syncTarget)에 도달한 차트들만 필터링
-        const chartsReaching = tempResults.filter((r) => r.reachedTime !== null);
-
-        // 기준 온도에 도달한 차트가 없으면 그냥 표시
-        if (chartsReaching.length === 0) {
-            setChartDatasets(tempResults);
-            return;
-        }
-
-        // 모든 선이 만나는 시간(가장 늦게 기준 온도에 도달한 시간)
-        const maxReachedTime = Math.max(...chartsReaching.map((r) => r.reachedTime));
-
-        // 기준 온도에 도달하지 않는 선은 건드리지 않고 그대로 사용
-        const synchronizedResults = tempResults.map((result) => {
-            if (result.reachedTime === null) {
-                return result;
-            }
-
-            const startTemp = Number(result.startPoint);
-            const meetTime = maxReachedTime;          // 모두가 기준 온도에 도달해야 하는 시간
-            const prePointCount = Math.max(1, Math.round(meetTime / STEP_SECONDS));
-
-            const newData = [];
-            const newLabels = [];
-
-            // 0초 ~ meetTime 까지는 startTemp -> syncTarget 까지 직선 증가
-            for (let i = 0; i <= prePointCount; i++) {
-                const t = i * STEP_SECONDS;
-                const ratio = prePointCount === 0 ? 1 : i / prePointCount;
-                const baseTemp = startTemp + (fixedSyncTarget - startTemp) * ratio;
-
-                // 0초(첫 점)는 amplitude 미적용, 이후부터만 적용
-                const temp = i === 0 ? startTemp : applyAmplitude(baseTemp, amplitudeValue);
-                newData.push(temp);
-                newLabels.push(formatTime(t));
-            }
-
-            const originalData = result.data;
-            const originalTotalPoints = originalData.length;
-            const reachIndexOrig = Math.round(result.reachedTime / STEP_SECONDS);
-
-            // 기존 시나리오에서 기준온도 이후 구간만 이어 붙이기
-            for (let i = reachIndexOrig + 1; i < originalTotalPoints; i++) {
-                const originalTime = i * STEP_SECONDS;
-                const delta = originalTime - result.reachedTime;
-                const newTime = meetTime + delta;
-
-                newData.push(originalData[i]);
-                newLabels.push(formatTime(newTime));
-            }
-
-            return {
-                ...result,
-                data: newData,
-                labels: newLabels,
-                reachedTime: meetTime,
-            };
-        });
-
-        setChartDatasets(synchronizedResults);
+        // 동기화 없이 그대로 표시
+        setChartDatasets(tempResults);
     };
 
     // JSON 생성(시나리오 저장)
@@ -878,7 +782,7 @@ const ProcessQualityTrand = () => {
                     leftContent={
                         <div ref={divRef} className="w-full sm:w-full lg:pr-4 text-[0.8vw]">
                             <Card noborder>
-                                <LineChart line_data={line_data} height={leftPanelHeight} label={searchParams.date} labelInterval = {labelInterval}/>
+                                <LineChart line_data={line_data} height={leftPanelHeight} label={searchParams.date} labelInterval={labelInterval}/>
                             </Card>
                         </div>
                     }

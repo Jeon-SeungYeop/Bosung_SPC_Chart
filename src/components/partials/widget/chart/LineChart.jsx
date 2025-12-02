@@ -227,8 +227,9 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 300 }) => {
       },
       scales: {
         y: {
+          position: "right",
           min: yMin,
-          max: yMax,
+          max: 1200,
           bounds: "ticks",
           grid: {
             color: isDark ? "#334155" : "#e2e8f0",
@@ -245,6 +246,7 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 300 }) => {
           },
         },
         x: {
+          reverse: true,
           grid: {
             color: (ctx) => {
               const idx = ctx?.tick?.value;
