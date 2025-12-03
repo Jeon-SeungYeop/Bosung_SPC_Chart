@@ -188,6 +188,81 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 300 }) => {
     [isDark, labelInterval]
   );
 
+  // y축 옆 세로 legend
+  const rotatedLegendPlugin = useMemo(
+    () => ({
+      id: "rotatedLegendPlugin",
+      afterDraw: (chart) => {
+        const { ctx, chartArea, scales } = chart;
+        if (!chartArea) return;
+
+        const yScale = scales?.y;
+        if (!yScale) return;
+
+        const datasets = chart.data?.datasets || [];
+        if (!datasets.length) return;
+
+        const boxSize = 12;
+        const spacing = 70; // 각 legend 간 간격
+
+        const items = datasets.map((ds, idx) => ({
+          label: ds.label ?? `Series ${idx + 1}`,
+          color: Array.isArray(ds.borderColor)
+            ? ds.borderColor[0]
+            : ds.borderColor || ds.backgroundColor || (isDark ? "#cbd5e1" : "#475569"),
+        }));
+
+        //  세로 중앙 기준으로 배치 (index 0 = 맨 아래)
+        const centerY = (chartArea.top + chartArea.bottom) / 2;
+        const totalHeight = (items.length - 1) * spacing;
+        const bottomY = centerY + totalHeight / 2; // 온도계1(0번)이 위치할 y
+
+        // 우측 x 위치
+        const legendX = yScale.right + 6;
+
+        items.forEach((item, index) => {
+          // index 0이 맨 아래, 위로 올라가며 쌓임
+          const y = bottomY - index * spacing;
+
+          // 색상 박스
+          ctx.save();
+          ctx.fillStyle = item.color;
+          ctx.strokeStyle = isDark ? "#1e293b" : "#cbd5e1";
+          ctx.lineWidth = 1;
+          ctx.fillRect(legendX, y - boxSize / 2, boxSize, boxSize);
+          ctx.strokeRect(legendX, y - boxSize / 2, boxSize, boxSize);
+          ctx.restore();
+
+          // 텍스트 (박스 위쪽, 세로)
+          ctx.save();
+
+          const cx = legendX + boxSize / 2;
+          const cy = y;
+
+          ctx.translate(cx, cy);
+          ctx.rotate(-Math.PI / 2);
+
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.font = "bold 14px Arial";
+          ctx.fillStyle = isDark ? "#cbd5e1" : "#475569";
+
+          const labelGap = boxSize + 20; // 박스와 텍스트 사이 간격
+          ctx.fillText(item.label, labelGap, 0);
+
+          ctx.restore();
+        });
+      },
+    }),
+    [isDark]
+  );
+
+  // 0~23 사이 랜덤 시(hour) 생성
+  const randomStartHour = useMemo(
+    () => Math.floor(Math.random() * 24), // 0 ~ 23 정수
+    [line_data]
+  );
+
   // 시간 문자열을 초로 변환하는 헬퍼 함수
   const parseTimeToSeconds = (timeStr) => {
     const match = /^(\d+):(\d{2}):(\d{2})$/.exec(String(timeStr));
@@ -198,10 +273,80 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 300 }) => {
     return hours * 3600 + minutes * 60 + seconds;
   };
 
+  // x축 기준 6시간마다 y축 온도 라벨을 차트 내부에 반복 표시하는 플러그인
+  const yAxisRepeatLabelPlugin = useMemo(
+    () => ({
+      id: "yAxisRepeatLabelPlugin",
+      afterDraw: (chart) => {
+        const { ctx, chartArea, scales } = chart;
+        if (!chartArea) return;
+
+        const xScale = scales?.x;
+        const yScale = scales?.y;
+        if (!xScale || !yScale) return;
+
+        const labels = chart.data?.labels || [];
+        const xPositions = [];
+
+        // 6시간(21600초)마다의 x 위치 계산 (단, 시작 0초는 제외)
+        labels.forEach((lbl, idx) => {
+          const totalSeconds = parseTimeToSeconds(lbl);
+          if (totalSeconds === null) return;
+
+          // 0초(처음 시작 부분)는 제외
+          if (totalSeconds === 0) return;
+
+          // 6시간(21600초) 배수만 사용
+          if (totalSeconds % (3600 * 6) !== 0) return;
+
+          const x = xScale.getPixelForValue(idx);
+          if (x < chartArea.left || x > chartArea.right) return;
+          xPositions.push(x);
+        });
+
+        if (!xPositions.length) return;
+
+        // y축의 눈금 값들(0, 30, 60, ...) 기준으로 텍스트 반복 표시
+        const yTicks = yScale.ticks || [];
+
+        ctx.save();
+        ctx.font = "12px Arial";
+        ctx.textAlign = "left";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = isDark ? "#cbd5e1" : "#475569";
+
+        const offsetX = 3; // 6시간 세로선에서 오른쪽으로 조금 띄우기
+
+        xPositions.forEach((xPos) => {
+          yTicks.forEach((tick) => {
+            const value = tick.value;
+            const y = yScale.getPixelForValue(value);
+            if (y < chartArea.top || y > chartArea.bottom) return;
+
+            // y축 tick callback 과 동일한 포맷: 30°C 단위만 표시
+            const v = Math.round(Number(value));
+            if (v % 100 !== 0) return;
+
+            const label = `${v}°C`;
+            ctx.fillText(label, xPos + offsetX, y);
+          });
+        });
+
+        ctx.restore();
+      },
+    }),
+    [isDark]
+  );
+
   const options = useMemo(
     () => ({
       responsive: true,
       maintainAspectRatio: false,
+      layout: {
+        padding: {
+          right: 30,
+        },
+      },
       plugins: {
         title: {
           display: true,
@@ -212,11 +357,12 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 300 }) => {
           padding: { top: 6, bottom: 12 },
         },
         legend: {
-          position: "bottom",
-          align: "center",
-          labels: {
-            color: isDark ? "#cbd5e1" : "#475569",
-          },
+          display: false,
+          //position: "right",
+          //align: "center",
+          //labels: {
+          //  color: isDark ? "#cbd5e1" : "#475569",
+          //},
         },
         pointLegendPlugin: {
           interval: labelInterval,
@@ -228,11 +374,24 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 300 }) => {
       scales: {
         y: {
           position: "right",
-          min: yMin,
+          min: 0,
           max: 1200,
           bounds: "ticks",
           grid: {
-            color: isDark ? "#334155" : "#e2e8f0",
+            color: (ctx) => {
+              const value = ctx?.tick?.value;
+              if (typeof value !== "number") {
+                return isDark ? "#334155" : "#e2e8f0";
+              }
+
+              // 100단위(0, 100, 200, ...) 격자는 조금 더 진하게
+              if (value % 100 === 0) {
+                return isDark ? "#000000ff" : "#94a3b8";
+              }
+
+              // 나머지는 기존 색
+              return isDark ? "#334155" : "#e2e8f0";
+            },
           },
           ticks: {
             autoSkip: false,
@@ -241,7 +400,7 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 300 }) => {
             color: isDark ? "#cbd5e1" : "#475569",
             callback: function (value) {
               const v = Math.round(Number(value));
-              return v % 30 === 0 ? `${v}°C` : "";
+              return v % 100 === 0 ? `${v}°C` : "";
             },
           },
         },
@@ -275,21 +434,22 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 300 }) => {
               // 1시간(3600초) 간격마다 시간 표시
               if (totalSeconds % 3600 === 0) {
                 const hours = Math.floor(totalSeconds / 3600);
-                return `${hours}`;
+                // 랜덤 시작 시각을 기준으로 고정
+                const cal_hours = (hours + randomStartHour) % 24;
+                return `${cal_hours}`;
               }
-              
               return "";
             },
           },
         },
       },
     }),
-    [isDark, labelInterval, yMin, yMax]
+    [isDark, labelInterval, yMin, yMax, randomStartHour]
   );
 
   return (
     <div style={{ height: height ?? 350 }}>
-      <Line key={label} options={options} data={data} plugins={[datePlugin]} />  {/*라인에 label 추가시 plugins*/}
+      <Line key={label} options={options} data={data} plugins={[datePlugin, rotatedLegendPlugin, yAxisRepeatLabelPlugin]} />  {/*라인에 label 추가시 plugins*/}
     </div>
   );
 };

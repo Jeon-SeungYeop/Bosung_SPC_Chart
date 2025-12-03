@@ -256,8 +256,18 @@ const ProcessQualityTrand = () => {
 
                     // 가변량 = 1시간당 변화량(℃/h)
                     // 실제 소요 시간(h) = (목표온도 - 현재온도) / 가변량
+                    let variablePerHour = variable; // 기본은 1시간당 variable
+                    const baseHours = Number(row.time); // heat/freeze일 때 time은 "시간(h)" 단위로 사용
+
+                    if (baseHours && baseHours > 0) {
+                        variablePerHour = variable / baseHours;
+                    }
+
+                    if (!variablePerHour) continue;
+
+                    // 가변량(℃/h) 기준으로 실제 걸리는 시간 계산
                     const tempDiff = targetTemp - currentTemp;
-                    const actualHours = Math.abs(tempDiff) / variable;
+                    const actualHours = Math.abs(tempDiff) / variablePerHour;
                     const totalSeconds = actualHours * 3600; // h -> sec
                     const dataPoints = Math.max(
                         1,
