@@ -576,9 +576,20 @@ const ProcessQualityTrand = () => {
     const divRef = useRef();
     const title = "차트 생성";
 
-    const openPrintPreviewWithBlob = ({ blobUrl, title, pageW, pageH, isLandscape }) => {
+    // 여러 장의 페이지를 지원하는 프린트 미리보기
+    const openPrintPreviewWithBlobs = ({ blobUrls, title, pageW, pageH, isLandscape }) => {
+        const pagesHtml = blobUrls
+            .map(
+            (url, idx) => `
+                <div class="page">
+                <img src="${url}" alt="${title} - ${idx + 1}" />
+                </div>
+            `
+            )
+            .join("\n");
+
         const html = `
-        <!DOCTYPE html>
+            <!DOCTYPE html>
             <html>
                 <head>
                     <meta charset="utf-8" />
@@ -607,6 +618,10 @@ const ProcessQualityTrand = () => {
                             background:#fff;
                             box-shadow:0 2px 8px rgba(0,0,0,.1);
                             display:flex; align-items:center; justify-content:center;
+                            page-break-after: always;
+                        }
+                        .page:last-child {
+                            page-break-after: auto;
                         }
                         .page > img {
                             width:100%;
@@ -628,19 +643,17 @@ const ProcessQualityTrand = () => {
                     </style>
                 </head>
                 <body>
-                    <div class="page">
-                        <img id="img" src="${blobUrl}" alt="${title}" />
-                    </div>
+                    ${pagesHtml}
                     <button class="print-btn" onclick="window.print()">🖨️ 프린트</button>
                     <script>
-                        window.addEventListener('beforeunload', () => {
-                        try { URL.revokeObjectURL('${blobUrl}'); } catch(e){}
+                    window.addEventListener('beforeunload', () => {
                         try {
-                            if (window.name && window.name.startsWith('blob:')) {
-                            URL.revokeObjectURL(window.name);
-                            }
-                        } catch(e){}
+                        const urls = ${JSON.stringify(blobUrls)};
+                        urls.forEach(function(u) {
+                            try { URL.revokeObjectURL(u); } catch(e) {}
                         });
+                        } catch(e){}
+                    });
                     </script>
                 </body>
             </html>`;
@@ -654,8 +667,12 @@ const ProcessQualityTrand = () => {
         const timer = setInterval(() => {
             if (!w || w.closed) {
                 clearInterval(timer);
-                try { URL.revokeObjectURL(blobUrl); } catch(e){}
                 try { URL.revokeObjectURL(htmlUrl); } catch(e){}
+                try {
+                    blobUrls.forEach(function(u) {
+                        try { URL.revokeObjectURL(u); } catch(e){}
+                    });
+                } catch(e){}
             }
         }, 1000);
     };
@@ -667,21 +684,36 @@ const ProcessQualityTrand = () => {
         setLeftPanelHeight(1500);
         await new Promise(r => setTimeout(r, 100));
 
-        try {
-            const src = divRef.current;
-            const srcCanvas = await html2canvas(src, {
-                scale: 3,
-                backgroundColor: "#fff",
-                useCORS: true,
-                willReadFrequently: true,
-            });
+        // Chart.js가 그린 실제 canvas 가져오기
+        const canvas = divRef.current.querySelector("canvas");
+        if (!canvas) {
+            console.error("차트 canvas를 찾을 수 없습니다.");
+            return;
+        }
 
+        // 원본 캔버스를 복사해서 작업용으로 사용
+        const srcCanvas = document.createElement("canvas");
+        srcCanvas.width = canvas.width;
+        srcCanvas.height = canvas.height;
+        const srcCtx = srcCanvas.getContext("2d");
+        if (!srcCtx) return;
+        srcCtx.drawImage(canvas, 0, 0);
+
+        try {
             const DPI = 300;
             const A4_PX = {
-                portrait: { w: Math.round(8.27 * DPI), h: Math.round(11.69 * DPI) },
-                landscape: { w: Math.round(11.69 * DPI), h: Math.round(8.27 * DPI) },
+                portrait: {
+                    w: Math.round(8.27 * DPI),
+                    h: Math.round(11.69 * DPI),
+                },
+                landscape: {
+                    w: Math.round(11.69 * DPI),
+                    h: Math.round(8.27 * DPI),
+                },
             };
-            const { w: A4W, h: A4H } = A4_PX[orientation];
+            const size = A4_PX[orientation] || A4_PX.portrait;
+            const A4W = size.w;
+            const A4H = size.h;
 
             const MARGIN_MM = 10;
             const mmToPx = (mm) => Math.round((mm / 25.4) * DPI);
@@ -689,32 +721,97 @@ const ProcessQualityTrand = () => {
             const contentW = A4W - margin * 2;
             const contentH = A4H - margin * 2;
 
-            const scale = Math.min(contentW / srcCanvas.width, contentH / srcCanvas.height);
-            const drawW = Math.round(srcCanvas.width * scale);
-            const drawH = Math.round(srcCanvas.height * scale);
-            const offsetX = Math.round((A4W - drawW) / 2);
-            const offsetY = Math.round((A4H - drawH) / 2);
+            // 세로 기준 scale (축소만)
+            const scale = Math.min(contentH / srcCanvas.height, 1);
+            const sliceWidth = contentW / scale; // 원본 기준 한 장 폭
+            const totalWidth = srcCanvas.width;
 
-            const out = document.createElement("canvas");
-            out.width = A4W;
-            out.height = A4H;
-            const ctx = out.getContext("2d");
-            if (!ctx) return;
-            ctx.fillStyle = "#FFFFFF";
-            ctx.fillRect(0, 0, A4W, A4H);
-            ctx.drawImage(srcCanvas, offsetX, offsetY, drawW, drawH);
+            // 왼쪽→오른쪽으로 겹치지 않는 구간 계산
+            const segments = [];
+            if (totalWidth <= sliceWidth) {
+                segments.push({ sx: 0, sWidth: totalWidth });
+            } else {
+                const remainder = totalWidth % sliceWidth; // 왼쪽 짧은 구간
+                let x = 0;
 
-            out.toBlob((blob) => {
-                if (!blob) return;
-                const blobUrl = URL.createObjectURL(blob);
-                const isLandscape = orientation === "landscape";
-                const pageW = isLandscape ? "297mm" : "210mm";
-                const pageH = isLandscape ? "210mm" : "297mm";
+                if (remainder > 0) {
+                    segments.push({ sx: 0, sWidth: remainder });
+                    x = remainder;
+                }
+                for (; x < totalWidth; x += sliceWidth) {
+                    const w = Math.min(sliceWidth, totalWidth - x);
+                    segments.push({ sx: x, sWidth: w });
+                }
+            }
 
-                openPrintPreviewWithBlob({ blobUrl, title, pageW, pageH, isLandscape });
-            }, "image/png");
+            // 오른쪽(마지막 구간)이 첫 페이지가 되도록 역순
+            segments.reverse();
+
+            const blobUrls = [];
+
+            for (let i = 0; i < segments.length; i++) {
+                const seg = segments[i];
+                const sx = seg.sx;
+                const sWidth = seg.sWidth;
+                const sHeight = srcCanvas.height;
+
+                const out = document.createElement("canvas");
+                out.width = A4W;
+                out.height = A4H;
+                const ctx = out.getContext("2d");
+                if (!ctx) continue;
+
+                // 배경 흰색
+                ctx.fillStyle = "#FFFFFF";
+                ctx.fillRect(0, 0, A4W, A4H);
+
+                const dWidth = sWidth * scale;
+                const dHeight = contentH;
+
+                // 오른쪽 정렬
+                const extraSpace = contentW - dWidth; // 남는 공간
+                const dx = margin + Math.max(0, extraSpace);
+                const dy = margin;
+
+                ctx.drawImage(
+                    srcCanvas,
+                    sx,
+                    0,
+                    sWidth,
+                    sHeight,
+                    dx,
+                    dy,
+                    dWidth,
+                    dHeight
+                );
+
+                const blob = await new Promise((resolve) =>
+                    out.toBlob(function (b) {
+                        resolve(b);
+                    }, "image/png")
+                );
+
+                if (blob) {
+                    const blobUrl = URL.createObjectURL(blob);
+                    blobUrls.push(blobUrl);
+                }
+            }
+
+            if (blobUrls.length === 0) return;
+
+            const isLandscape = orientation === "landscape";
+            const pageW = isLandscape ? "297mm" : "210mm";
+            const pageH = isLandscape ? "210mm" : "297mm";
+
+            openPrintPreviewWithBlobs({
+                blobUrls,
+                title,
+                pageW,
+                pageH,
+                isLandscape,
+            });
         } catch (error) {
-            console.error("Error converting div to A4 image:", error);
+            console.error("Error converting chart to multi-page A4:", error);
         }
     };
 

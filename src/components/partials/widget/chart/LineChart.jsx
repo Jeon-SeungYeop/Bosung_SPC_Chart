@@ -26,6 +26,11 @@ ChartJS.register(
 const LineChart = ({ line_data, height, label = "", labelInterval = 300 }) => {
   const [isDark] = useDarkMode();
 
+  // 1cm ≒ 96 / 2.54 px
+  const CM_TO_PX = 96 / 2.54;
+  const GRID_SPACING_CM = 4;
+  const GRID_SPACING_PX = GRID_SPACING_CM * CM_TO_PX; // ≒ 189px
+  
   // 색 지정
   const palette = useMemo(
     () => [
@@ -121,7 +126,7 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 300 }) => {
         const firstPoint = meta?.data?.[0];
         if (!firstPoint) return;
 
-        const x = firstPoint.x + 30;
+        const x = firstPoint.x - 30;
         const y = firstPoint.y - 15;
 
         ctx.save();
@@ -263,7 +268,6 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 300 }) => {
     [line_data]
   );
 
-  // 시간 문자열을 초로 변환하는 헬퍼 함수
   const parseTimeToSeconds = (timeStr) => {
     const match = /^(\d+):(\d{2}):(\d{2})$/.exec(String(timeStr));
     if (!match) return null;
@@ -273,11 +277,36 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 300 }) => {
     return hours * 3600 + minutes * 60 + seconds;
   };
 
-  // x축 기준 6시간마다 y축 온도 라벨을 차트 내부에 반복 표시하는 플러그인
+  // 30분 간격 그리드가 5cm 간격으로 보이도록 차트 width 계산
+  const chartWidth = useMemo(() => {
+    const labels = line_data?.labels ?? [];
+    const times = labels
+      .map((lbl) => parseTimeToSeconds(lbl))
+      .filter((v) => typeof v === "number");
+
+    if (times.length < 2) {
+      // 데이터가 거의 없으면 그냥 100% 폭 사용
+      return "100%";
+    }
+
+    const minT = Math.min(...times);
+    const maxT = Math.max(...times);
+
+    // 30분(1800초) 간 그리드 개수
+    const gridCount = Math.max(
+      1,
+      Math.floor((maxT - minT) / (3600 * 0.5)) + 1 // 0.5h = 1800초
+    );
+
+    const widthPx = gridCount * GRID_SPACING_PX;
+    return widthPx; // 숫자면 style width에서 px로 인식됨
+  }, [line_data]);
+
+  // x축 기준 "표시되는 시간 % 6 === 0" 인 곳에만 온도 축(반복 y라벨) 표시
   const yAxisRepeatLabelPlugin = useMemo(
     () => ({
       id: "yAxisRepeatLabelPlugin",
-      afterDraw: (chart) => {
+      afterDraw: (chart, _args, pluginOptions) => {
         const { ctx, chartArea, scales } = chart;
         if (!chartArea) return;
 
@@ -288,16 +317,20 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 300 }) => {
         const labels = chart.data?.labels || [];
         const xPositions = [];
 
-        // 6시간(21600초)마다의 x 위치 계산 (단, 시작 0초는 제외)
+        const timeOffset = pluginOptions?.timeOffset ?? 0;
+
         labels.forEach((lbl, idx) => {
           const totalSeconds = parseTimeToSeconds(lbl);
           if (totalSeconds === null) return;
 
-          // 0초(처음 시작 부분)는 제외
-          if (totalSeconds === 0) return;
+          // 정시만 사용 (hh:00:00)
+          if (totalSeconds % 3600 !== 0) return;
 
-          // 6시간(21600초) 배수만 사용
-          if (totalSeconds % (3600 * 6) !== 0) return;
+          const hours = Math.floor(totalSeconds / 3600);
+          const displayHour = (hours + timeOffset) % 24;
+
+          // "표시되는 시간 % 6 === 0" 인 곳만
+          if (displayHour % 6 !== 0) return;
 
           const x = xScale.getPixelForValue(idx);
           if (x < chartArea.left || x > chartArea.right) return;
@@ -306,16 +339,15 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 300 }) => {
 
         if (!xPositions.length) return;
 
-        // y축의 눈금 값들(0, 30, 60, ...) 기준으로 텍스트 반복 표시
         const yTicks = yScale.ticks || [];
 
         ctx.save();
         ctx.font = "12px Arial";
-        ctx.textAlign = "left";
+        ctx.textAlign = "right";
         ctx.textBaseline = "middle";
         ctx.fillStyle = isDark ? "#cbd5e1" : "#475569";
 
-        const offsetX = 3; // 6시간 세로선에서 오른쪽으로 조금 띄우기
+        const offsetX = 3;
 
         xPositions.forEach((xPos) => {
           yTicks.forEach((tick) => {
@@ -323,12 +355,11 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 300 }) => {
             const y = yScale.getPixelForValue(value);
             if (y < chartArea.top || y > chartArea.bottom) return;
 
-            // y축 tick callback 과 동일한 포맷: 30°C 단위만 표시
             const v = Math.round(Number(value));
             if (v % 100 !== 0) return;
 
             const label = `${v}°C`;
-            ctx.fillText(label, xPos + offsetX, y);
+            ctx.fillText(label, xPos - offsetX, y);
           });
         });
 
@@ -367,6 +398,9 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 300 }) => {
         pointLegendPlugin: {
           interval: labelInterval,
         },
+        yAxisRepeatLabelPlugin: {
+          timeOffset: randomStartHour,
+        },
       },
       elements: {
         line: { borderWidth: 0 },
@@ -394,6 +428,7 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 300 }) => {
             },
           },
           ticks: {
+            display: false,
             autoSkip: false,
             stepSize: 10,
             precision: 0,
@@ -448,8 +483,16 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 300 }) => {
   );
 
   return (
-    <div style={{ height: height ?? 350 }}>
-      <Line key={label} options={options} data={data} plugins={[datePlugin, rotatedLegendPlugin, yAxisRepeatLabelPlugin]} />  {/*라인에 label 추가시 plugins*/}
+    <div style={{ overflowX: "auto" }}>
+      {/* 실제 chart.js가 차지할 영역: 높이 + 계산된 width */}
+      <div style={{ height: height ?? 350, width: chartWidth }}>
+        <Line
+          key={label}
+          options={options}
+          data={data}
+          plugins={[datePlugin, rotatedLegendPlugin, yAxisRepeatLabelPlugin]}
+        />
+      </div>
     </div>
   );
 };
