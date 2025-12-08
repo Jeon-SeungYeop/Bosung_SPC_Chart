@@ -21,7 +21,7 @@ const ProcessQualityTrand = () => {
         grid5: false,
         grid6: false,
     });
-
+    const CHART_TITLE_TEXT = "CHART NO. EH                                        (0-1200)";
     const [chartDatasets, setChartDatasets] = useState([]);
 
     const line_data = useMemo(() => {
@@ -45,13 +45,6 @@ const ProcessQualityTrand = () => {
             }))
         };
     }, [chartDatasets]);
-    // 선 위 label 간격
-    const labelInterval = useMemo(() => {
-        const len = line_data.labels?.length || 0;
-
-        if (len === 0) return 1;
-        return Math.floor(len / 3);
-    }, [line_data]);
 
     const updateSearchParams = useMemo(() => CommonFunction.createUpdateSearchParams(setSearchParams), [setSearchParams]);
     const fileInputRef = useRef(null);
@@ -100,7 +93,7 @@ const ProcessQualityTrand = () => {
                 headerName: "설정온도(℃)",
                 editable: (params) => {
                     const division = params.data.division;
-                    return division === 'start' || division === 'heat' || division === 'freeze' || division === 'maintain';
+                    return division === 'start' || division === 'heat' || division === 'maintain' || division === 'random';
                 },
                 cellEditor: 'agTextCellEditor',
                 cellEditorParams: {
@@ -118,7 +111,7 @@ const ProcessQualityTrand = () => {
                 editable: (params) => {
                     if (params.node.rowIndex === 0) return false;
                     const division = params.data.division;
-                    return division === 'heat' || division === 'freeze' || division === 'maintain';
+                    return division === 'heat' || division === 'maintain' || division === 'random';
                 },
                 cellEditor: 'agTextCellEditor',
                 cellEditorParams: {
@@ -136,7 +129,7 @@ const ProcessQualityTrand = () => {
                 editable: (params) => {
                     if (params.node.rowIndex === 0) return false;
                     const division = params.data.division;
-                    return division === 'heat' || division === 'freeze';
+                    return division === 'heat' || division === 'random';
                 },
                 cellEditor: 'agTextCellEditor',
                 cellEditorParams: {
@@ -157,15 +150,15 @@ const ProcessQualityTrand = () => {
                     return {
                         values: params.node.rowIndex === 0
                             ? ['start']
-                            : ['heat', 'maintain', 'freeze', 'unavailable']
+                            : ['heat', 'maintain', 'random', 'unavailable']
                     };
                 },
                 valueFormatter: params => {
                     const valueMap = {
                         'start': '시작',
-                        'heat': '가열',
+                        'heat': '가열/냉각',
                         'maintain': '유지',
-                        'freeze': '냉각',
+                        'random': '굴곡',
                         'unavailable': '사용안함'
                     };
                     return valueMap[params.value] || '';
@@ -202,8 +195,11 @@ const ProcessQualityTrand = () => {
 
     // amplitude(진폭) 값에 따른 랜덤 변동 함수
     function applyAmplitude(temp, amplitude) {
-        if (!amplitude || amplitude === 0) return temp;
-        const range = Number(amplitude);
+        const a = Number(amplitude);
+        // 숫자가 아니거나 0이면 그대로 리턴 (NaN 방지)
+        if (!Number.isFinite(a) || a === 0) return temp;
+
+        const range = Math.abs(a);
         const randomOffset = (Math.random() * 2 - 1) * range; // -range ~ +range
         return temp + randomOffset;
     }
@@ -219,6 +215,9 @@ const ProcessQualityTrand = () => {
 
         // 사이클 반복
         for (let cycle = 0; cycle < cycleCount; cycle++) {
+            // cycle >= 1 : 두번째 사이클부터 -> random 무시
+            const allowRandomThisCycle = (cycle === 0);
+
             // 첫 사이클의 시작점만 추가 (이후 사이클은 이전 마지막점과 연결)
             if (cycle === 0) {
                 chartData.push(start_point);
@@ -229,8 +228,14 @@ const ProcessQualityTrand = () => {
                 const row = griddata[i];
 
                 if (row.division === 'unavailable') continue;
+
+                // 두번째 사이클부터는 random 구간은 스킵
+                if (!allowRandomThisCycle && row.division === 'random') {
+                    continue;
+                }
+
                 const targetTemp = Number(row.temperature);
-                const timeValue = Number(row.time);      // 분 단위
+                const timeValue = Number(row.time);      // 분 단위 (maintain 에서 사용)
                 const variable = Number(row.variable);   // 시간당 온도 변화량(℃/h)
 
                 if (row.division === 'maintain') {
@@ -250,7 +255,7 @@ const ProcessQualityTrand = () => {
                         labels.push(formatTime(currentTime));
                     }
                     currentTemp = targetTemp;
-                } else if (row.division === 'heat' || row.division === 'freeze') {
+                } else if (row.division === 'heat') {
                     if (!targetTemp && targetTemp !== 0) continue;
                     if (!variable) continue; // variable 없으면 계산 불가
 
@@ -281,6 +286,67 @@ const ProcessQualityTrand = () => {
                         currentTemp += tempPerPoint;
                         chartData.push(applyAmplitude(currentTemp, amplitude));
                         labels.push(formatTime(currentTime));
+                    }
+                    currentTemp = targetTemp;
+                } else if (row.division === 'random') {
+                    if (!targetTemp && targetTemp !== 0) continue;
+                    if (!variable) continue; // variable 없으면 계산 불가
+
+                    // 기본 시간 계산 로직은 heat/freeze와 동일
+                    let variablePerHour = variable;
+                    const baseHours = Number(row.time); // random일 때도 "시간(h)"으로 사용
+
+                    if (baseHours && baseHours > 0) {
+                        variablePerHour = variable / baseHours;
+                    }
+                    if (!variablePerHour) continue;
+
+                    const tempDiff = targetTemp - currentTemp;
+                    const actualHours = Math.abs(tempDiff) / variablePerHour;
+                    const totalSeconds = actualHours * 3600;
+                    const dataPoints = Math.max(1, Math.round(totalSeconds / STEP_SECONDS));
+
+                    // 1~3개 사이의 곡선을 랜덤하게 생성
+                    const waveCount = 1 + Math.floor(Math.random() * 3); // 1, 2, 3
+
+                    // 기본 곡선 진폭: 온도 차이의 5% (최소 1도)
+                    const baseWaveAmp = Math.max(1, Math.abs(tempDiff) * 0.05);
+
+                    const ampNum = Number(amplitude);
+                    const effectiveAmp = (Number.isFinite(ampNum) && ampNum !== 0)
+                        ? Math.max(baseWaveAmp, Math.abs(ampNum))
+                        : baseWaveAmp;
+
+                    // 진폭 값이 있을 때는 약간의 랜덤 노이즈만 추가
+                    const noiseAmp = (Number.isFinite(ampNum) && ampNum !== 0)
+                        ? Math.abs(ampNum) * 2
+                        : 0;
+
+                    for (let j = 0; j < dataPoints; j++) {
+                        currentTime += STEP_SECONDS;
+
+                        const t = (j + 1) / dataPoints; // 0 ~ 1 사이 진행률
+
+                        // 직선 보간 (currentTemp -> targetTemp)
+                        const linearTemp = currentTemp + tempDiff * t;
+
+                        // 사인 곡선 (effectiveAmp 진폭, waveCount 개의 물결)
+                        const wave = Math.sin(t * Math.PI * 2 * waveCount) * effectiveAmp;
+
+                        // 진폭이 있을 때만 약간의 랜덤 노이즈
+                        const noise = noiseAmp
+                            ? (Math.random() * 2 - 1) * noiseAmp
+                            : 0;
+
+                        const curvedTemp = linearTemp + wave + noise;
+
+                        chartData.push(curvedTemp);
+                        labels.push(formatTime(currentTime));
+                    }
+
+                    // 마지막 포인트는 목표 온도로 딱 맞추기
+                    if (chartData.length > 0) {
+                        chartData[chartData.length - 1] = targetTemp;
                     }
                     currentTemp = targetTemp;
                 }
@@ -337,25 +403,25 @@ const ProcessQualityTrand = () => {
             return;
         }
 
-        // cycle이 2 이상일 때만 마지막 온도 비교
-        if (cycleCount >= 2 && lastTemps.length > 1) {
-            const base = lastTemps[0];
-            const different = lastTemps.filter((x) => x.temp !== base.temp);
+        //// cycle이 2 이상일 때만 마지막 온도 비교
+        //if (cycleCount >= 2 && lastTemps.length > 1) {
+        //    const base = lastTemps[0];
+        //    const different = lastTemps.filter((x) => x.temp !== base.temp);
 
-            if (different.length > 0) {
-                const baseText = `${base.label}(${base.temp}℃)`;
-                const diffText = different
-                    .map((x) => `${x.label}(${x.temp}℃)`)
-                    .join(", ");
+        //    if (different.length > 0) {
+        //        const baseText = `${base.label}(${base.temp}℃)`;
+        //        const diffText = different
+        //            .map((x) => `${x.label}(${x.temp}℃)`)
+        //            .join(", ");
 
-                alert(
-                    "적용된 온도계의 사용안함이 아닌 마지막 행 온도 값이 서로 다릅니다.\n\n" +
-                    `기준: ${baseText}\n` +
-                    `다른 온도: ${diffText}`
-                );
-                return; // 차트 생성 중단
-            }
-        }
+        //        alert(
+        //            "적용된 온도계의 사용안함이 아닌 마지막 행 온도 값이 서로 다릅니다.\n\n" +
+        //            `기준: ${baseText}\n` +
+        //            `다른 온도: ${diffText}`
+        //        );
+        //        return; // 차트 생성 중단
+        //    }
+        //}
 
         const tempResults = [];
 
@@ -467,7 +533,7 @@ const ProcessQualityTrand = () => {
     };
 
     const MAX_ROWS = 10;
-    const ALLOWED_DIVISIONS = new Set(["start", "heat", "maintain", "freeze", "unavailable"]);
+    const ALLOWED_DIVISIONS = new Set(["start", "heat", "maintain", "random", "unavailable"]);
     const TH_KEYS = ["온도계1", "온도계2", "온도계3", "온도계4", "온도계5", "온도계6"];
 
     function normalizeNumber(v, fieldName) {
@@ -765,6 +831,16 @@ const ProcessQualityTrand = () => {
                 ctx.fillStyle = "#FFFFFF";
                 ctx.fillRect(0, 0, A4W, A4H);
 
+                // 각 장 상단 중앙에 타이틀 그리기
+                ctx.save();
+                ctx.font = "bold 28px Arial";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "top";
+                ctx.fillStyle = "#000000";
+                const titleY = margin / 2;            // 상단 여백 안쪽 중앙
+                ctx.fillText(CHART_TITLE_TEXT, A4W / 2, titleY);
+                ctx.restore();
+
                 const dWidth = sWidth * scale;
                 const dHeight = contentH;
 
@@ -889,7 +965,7 @@ const ProcessQualityTrand = () => {
                     leftContent={
                         <div ref={divRef} className="w-full sm:w-full lg:pr-4 text-[0.8vw]">
                             <Card noborder>
-                                <LineChart line_data={line_data} height={leftPanelHeight} label={searchParams.date} labelInterval={labelInterval}/>
+                                <LineChart line_data={line_data} height={leftPanelHeight} label={searchParams.date}/>
                             </Card>
                         </div>
                     }

@@ -23,7 +23,7 @@ ChartJS.register(
   Legend
 );
 
-const LineChart = ({ line_data, height, label = "", labelInterval = 300 }) => {
+const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
   const [isDark] = useDarkMode();
 
   // 1cm ≒ 96 / 2.54 px
@@ -31,6 +31,9 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 300 }) => {
   const GRID_SPACING_CM = 4;
   const GRID_SPACING_PX = GRID_SPACING_CM * CM_TO_PX; // ≒ 189px
   
+  // 차트 타이틀
+  const chartTitleText = "CHART NO. EH                                        (0-1200)";
+
   // 색 지정
   const palette = useMemo(
     () => [
@@ -142,54 +145,76 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 300 }) => {
 
   // 간헐적 라벨
   const pointLegendPlugin = useMemo(
-    () => ({
-      id: "pointLegendPlugin",
-      afterDatasetsDraw: (chart, _args, pluginOptions) => {
-        const { ctx, chartArea } = chart;
-        if (!chartArea) return;
+    () => {
+      const datasetIntervals = [100, 103, 106, 109, 112, 115];
 
-        const interval =
-          pluginOptions?.interval != null ? pluginOptions.interval : labelInterval;
+      // 정의된 간격 전체 (공배수 체크용)
+      const definedIntervals = datasetIntervals.filter((v) => typeof v === "number");
 
-        chart.data.datasets.forEach((ds, di) => {
-          const meta = chart.getDatasetMeta(di);
-          if (!meta || meta.hidden) return;
+      return {
+        id: "pointLegendPlugin",
+        afterDatasetsDraw: (chart, _args, pluginOptions) => {
+          const { ctx, chartArea } = chart;
+          if (!chartArea) return;
 
-          const labelText = ds.label ?? `Series ${di + 1}`;
-          const pts = meta.data || [];
+          chart.data.datasets.forEach((ds, di) => {
+            const meta = chart.getDatasetMeta(di);
+            if (!meta || meta.hidden) return;
 
-          for (let i = 1; i < pts.length; i += 1) {
-            if (i % interval !== 0) continue;
+            const pts = meta.data || [];
+            if (!pts.length) return;
 
-            const el = pts[i];
-            if (!el) continue;
+            // 각 dataset 별 간격
+            const interval =
+              datasetIntervals[di] ??
+              pluginOptions?.interval ?? // 옵션에서 넘어온 값
+              labelInterval; // props 기본값
 
-            const { x, y } = el.getProps(["x", "y"], true);
-            if (
-              x < chartArea.left ||
-              x > chartArea.right ||
-              y < chartArea.top ||
-              y > chartArea.bottom
-            ) {
-              continue;
+            // "온도계1"가 아니라 숫자만 (1, 2, 3, ...)
+            const labelText = String(di + 1);
+
+            for (let i = 1; i < pts.length; i += 1) {
+              if (i % interval !== 0) continue;
+
+              // ---- 공배수(여러 간격에 모두 걸리는 지점)에서는 표시 안 함 ----
+              const isCommonMultiple = definedIntervals.some((iv, idx) => {
+                if (idx === di) return false;     // 자기 자신의 간격은 제외
+                if (!iv) return false;
+                return i % iv === 0;              // 다른 간격의 배수도 동시에 되는지
+              });
+              if (isCommonMultiple) continue;
+              // -------------------------------------------------------
+
+              const el = pts[i];
+              if (!el) continue;
+
+              const { x, y } = el.getProps(["x", "y"], true);
+              if (
+                x < chartArea.left ||
+                x > chartArea.right ||
+                y < chartArea.top ||
+                y > chartArea.bottom
+              ) {
+                continue;
+              }
+
+              ctx.save();
+              ctx.font = "bold 11px Arial";
+              ctx.textAlign = "left";
+              ctx.textBaseline = "middle";
+
+              const color =
+                ds.borderColor || ds.backgroundColor || (isDark ? "#cbd5e1" : "#475569");
+              ctx.fillStyle = Array.isArray(color) ? color[0] : color;
+
+              const offsetY = di % 2 === 0 ? -12 : 12;
+              ctx.fillText(labelText, x + 6, y + offsetY);
+              ctx.restore();
             }
-
-            ctx.save();
-            ctx.font = "bold 11px Arial";
-            ctx.textAlign = "left";
-            ctx.textBaseline = "middle";
-
-            const color =
-              ds.borderColor || ds.backgroundColor || (isDark ? "#cbd5e1" : "#475569");
-            ctx.fillStyle = Array.isArray(color) ? color[0] : color;
-
-            const offsetY = di % 2 === 0 ? -12 : 12;
-            ctx.fillText(labelText, x + 6, y + offsetY);
-            ctx.restore();
-          }
-        });
-      },
-    }),
+          });
+        },
+      };
+    },
     [isDark, labelInterval]
   );
 
@@ -376,16 +401,18 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 300 }) => {
       layout: {
         padding: {
           right: 30,
+          top: 25,
         },
       },
       plugins: {
         title: {
-          display: true,
-          position: "top",
-          align: "center",
-          color: isDark ? "#cbd5e1" : "#475569",
-          font: { size: 16, weight: "bold" },
-          padding: { top: 6, bottom: 12 },
+          display: false,
+          text: chartTitleText,
+          //position: "top",
+          //align: "center",
+          //color: isDark ? "#cbd5e1" : "#475569",
+          //font: { size: 16, weight: "bold" },
+          //padding: { top: 6, bottom: 12 },
         },
         legend: {
           display: false,
@@ -490,7 +517,7 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 300 }) => {
           key={label}
           options={options}
           data={data}
-          plugins={[datePlugin, rotatedLegendPlugin, yAxisRepeatLabelPlugin]}
+          plugins={[datePlugin, rotatedLegendPlugin, yAxisRepeatLabelPlugin, pointLegendPlugin]}
         />
       </div>
     </div>
