@@ -21,8 +21,11 @@ const ProcessQualityTrand = () => {
         grid5: false,
         grid6: false,
     });
-    const CHART_TITLE_TEXT = "CHART NO. EH                                        (0-1200)";
+    const CHART_TITLE_TEXT = "CHART NO. EH                 (0-1200)";
     const [chartDatasets, setChartDatasets] = useState([]);
+
+    const FULL_PAGE_HOURS = 8;
+    const FULL_PAGE_SEC   = FULL_PAGE_HOURS * 3600;
 
     const line_data = useMemo(() => {
         if (chartDatasets.length === 0) {
@@ -176,6 +179,15 @@ const ProcessQualityTrand = () => {
         const s = Math.floor(seconds % 60);
         return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
     }
+    // "HH:MM:SS" 문자열을 초 단위 숫자로 변환
+    const parseTimeToSeconds = (timeStr) => {
+        const m = /^(\d{2}):(\d{2}):(\d{2})$/.exec(String(timeStr));
+        if (!m) return null;
+        const h = parseInt(m[1], 10);
+        const min = parseInt(m[2], 10);
+        const s = parseInt(m[3], 10);
+        return h * 3600 + min * 60 + s;
+    };
 
     // griddata에서 division !== 'unavailable' 인 마지막 행의 온도 반환
     function getLastValidTemperature(griddata) {
@@ -352,7 +364,21 @@ const ProcessQualityTrand = () => {
                 }
             }
         }
+        if (currentTime > 0) {
+            const remainder = currentTime % FULL_PAGE_SEC;
 
+            if (remainder !== 0) {
+                const needSec = FULL_PAGE_SEC - remainder;  // 부족한 초
+                const extraPoints = Math.round(needSec / STEP_SECONDS);
+
+                for (let i = 0; i < extraPoints; i++) {
+                    currentTime += STEP_SECONDS;
+                    labels.push(formatTime(currentTime));
+                    // 실제 온도 대신 null만 추가 → 축/폭만 늘어나고 데이터는 없음
+                    chartData.push(null);
+                }
+            }
+        }
         return {
             labels: labels,
             data: chartData,
@@ -659,10 +685,17 @@ const ProcessQualityTrand = () => {
             <html>
                 <head>
                     <meta charset="utf-8" />
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
                     <title>${title}</title>
                     <style>
                         :root { --page-w:${pageW}; --page-h:${pageH}; }
-                        html, body { margin:0; padding:0; }
+                        html, body {
+                            margin:0;
+                            padding:0;
+                        }
+                        html {
+                            zoom: 1;
+                        }
                         body {
                             background:#f5f5f5;
                             display:flex;
@@ -698,7 +731,15 @@ const ProcessQualityTrand = () => {
                             break-inside: avoid;
                         }
                         @media print {
-                            html, body { margin:0; padding:0; background:#fff; }
+                            html, body {
+                                margin:0;
+                                padding:0;
+                                background:#fff;
+                                /* 프린트 시 페이지 확대/축소(줌) 영향을 최소화 */
+                                zoom: 1 !important;
+                                -webkit-print-color-adjust: exact;
+                                print-color-adjust: exact;
+                            }
                             .print-btn { display:none; }
                             .page { box-shadow:none; margin:0; }
                         }
@@ -732,25 +773,24 @@ const ProcessQualityTrand = () => {
 
         const timer = setInterval(() => {
             if (!w || w.closed) {
-                clearInterval(timer);
-                try { URL.revokeObjectURL(htmlUrl); } catch(e){}
-                try {
-                    blobUrls.forEach(function(u) {
-                        try { URL.revokeObjectURL(u); } catch(e){}
-                    });
-                } catch(e){}
+            clearInterval(timer);
+            try { URL.revokeObjectURL(htmlUrl); } catch(e){}
+            try {
+                blobUrls.forEach(function(u) {
+                    try { URL.revokeObjectURL(u); } catch(e){}
+                });
+            } catch(e){}
             }
         }, 1000);
     };
 
-    const handleDownload = async (orientation = "portrait") => { // portrait : 세로로 긴 , landscape : 가로로 긴
+    const handleDownload = async (orientation = "portrait") => { // portrait : 세로, landscape : 가로
         if (!divRef.current) return;
 
         // 차트 크기 조절 후 잠시 대기
         setLeftPanelHeight(1500);
-        await new Promise(r => setTimeout(r, 100));
+        await new Promise((r) => setTimeout(r, 100));
 
-        // Chart.js가 그린 실제 canvas 가져오기
         const canvas = divRef.current.querySelector("canvas");
         if (!canvas) {
             console.error("차트 canvas를 찾을 수 없습니다.");
@@ -787,31 +827,64 @@ const ProcessQualityTrand = () => {
             const contentW = A4W - margin * 2;
             const contentH = A4H - margin * 2;
 
-            // 세로 기준 scale (축소만)
-            const scale = Math.min(contentH / srcCanvas.height, 1);
-            const sliceWidth = contentW / scale; // 원본 기준 한 장 폭
-            const totalWidth = srcCanvas.width;
+            // 제목 관련
+            const TITLE_FONT_SIZE = 28;
+            const TITLE_LINE_HEIGHT = 1.2;
+            const TITLE_CHART_GAP = mmToPx(1); // 제목과 차트 사이 1mm
+            const titleHeight = TITLE_FONT_SIZE * TITLE_LINE_HEIGHT;
 
-            // 왼쪽→오른쪽으로 겹치지 않는 구간 계산
-            const segments = [];
-            if (totalWidth <= sliceWidth) {
-                segments.push({ sx: 0, sWidth: totalWidth });
-            } else {
-                const remainder = totalWidth % sliceWidth; // 왼쪽 짧은 구간
-                let x = 0;
+            const HEIGHT_RATIO = 1.0; // 내용 영역 100%
+            const usableBlockHeight = contentH * HEIGHT_RATIO;
+            const chartMaxArea = usableBlockHeight - titleHeight - TITLE_CHART_GAP;
 
-                if (remainder > 0) {
-                    segments.push({ sx: 0, sWidth: remainder });
-                    x = remainder;
-                }
-                for (; x < totalWidth; x += sliceWidth) {
-                    const w = Math.min(sliceWidth, totalWidth - x);
-                    segments.push({ sx: x, sWidth: w });
+            const srcWidth = srcCanvas.width;
+            const srcHeight = srcCanvas.height;
+
+            // 시간(라벨) 기준으로 8시간 단위 페이지 분할
+            const FULL_PAGE_HOURS = 8;
+            const FULL_PAGE_SEC = FULL_PAGE_HOURS * 3600;
+
+            const labels = line_data?.labels || [];
+            const times = labels
+                .map((lbl) => parseTimeToSeconds(lbl))
+                .filter((v) => typeof v === "number" && Number.isFinite(v));
+
+            let segments = [];
+            let useTimeSplit = false;
+
+            if (times.length >= 2 && FULL_PAGE_SEC > 0) {
+                const minSec = Math.min(...times);
+                const maxSec = Math.max(...times);
+                const totalSeconds = maxSec - minSec;
+
+                if (totalSeconds > 0) {
+                    useTimeSplit = true;
+
+                    // 오른쪽(마지막 시각) 기준으로 FULL_PAGE_SEC(8시간)씩 잘라서 segment 생성
+                    let endSec = maxSec; // 가장 오른쪽 시간
+                    while (endSec > minSec) {
+                        const startSec = Math.max(minSec, endSec - FULL_PAGE_SEC);
+
+                        const startRatio = (startSec - minSec) / totalSeconds;
+                        const endRatio   = (endSec   - minSec) / totalSeconds;
+
+                        const sx = Math.round(srcWidth * startRatio);
+                        const ex = Math.round(srcWidth * endRatio);
+                        const sWidth = Math.max(1, ex - sx);
+
+                        segments.push({ sx, sWidth });
+
+                        endSec = startSec;
+                        if (startSec === minSec) break;
+                    }
                 }
             }
 
-            // 오른쪽(마지막 구간)이 첫 페이지가 되도록 역순
-            segments.reverse();
+            // 시간 기준 분할이 불가능하면, 기존 폭 기준 분할 사용
+            if (!useTimeSplit) {
+                // 한 장에 들어갈 원본 기준 폭은 일단 전체 폭으로 (최소 1장)
+                segments.push({ sx: 0, sWidth: srcWidth });
+            }
 
             const blobUrls = [];
 
@@ -828,27 +901,43 @@ const ProcessQualityTrand = () => {
                 if (!ctx) continue;
 
                 // 배경 흰색
-                ctx.fillStyle = "#FFFFFF";
+                ctx.fillStyle = "#f8f8efff";
                 ctx.fillRect(0, 0, A4W, A4H);
 
-                // 각 장 상단 중앙에 타이틀 그리기
+                // 브라우저 확대/축소와 무관하게,
+                const srcAspect = sWidth / sHeight || 1;
+
+                // 우선 높이를 내용 영역 최대값에 맞추고
+                let dHeight = chartMaxArea;
+                let dWidth = dHeight * srcAspect;
+
+                // 가로가 contentW를 넘으면, 가로에 맞춰 다시 축소
+                if (dWidth > contentW) {
+                    const adjust = contentW / dWidth;
+                    dWidth *= adjust;
+                    dHeight *= adjust;
+                }
+
+                // 제목 + 차트 전체 블록 높이
+                const totalBlockHeight = titleHeight + TITLE_CHART_GAP + dHeight;
+
+                const extraSpaceX = contentW - dWidth;
+                const dx = margin + Math.max(0, extraSpaceX);
+
+                const startY = margin + Math.max(0, (contentH - totalBlockHeight) / 2);
+                const titleY = startY;
+                const dy = titleY + titleHeight + TITLE_CHART_GAP;
+
+                // 제목 그리기 (차트 바로 위)
                 ctx.save();
-                ctx.font = "bold 28px Arial";
+                ctx.font = `bold ${TITLE_FONT_SIZE}px Arial`;
                 ctx.textAlign = "center";
                 ctx.textBaseline = "top";
                 ctx.fillStyle = "#000000";
-                const titleY = margin / 2;            // 상단 여백 안쪽 중앙
                 ctx.fillText(CHART_TITLE_TEXT, A4W / 2, titleY);
                 ctx.restore();
 
-                const dWidth = sWidth * scale;
-                const dHeight = contentH;
-
-                // 오른쪽 정렬
-                const extraSpace = contentW - dWidth; // 남는 공간
-                const dx = margin + Math.max(0, extraSpace);
-                const dy = margin;
-
+                // 차트 그리기
                 ctx.drawImage(
                     srcCanvas,
                     sx,
@@ -862,18 +951,15 @@ const ProcessQualityTrand = () => {
                 );
 
                 const blob = await new Promise((resolve) =>
-                    out.toBlob(function (b) {
-                        resolve(b);
-                    }, "image/png")
+                    out.toBlob((b) => resolve(b), "image/png")
                 );
-
                 if (blob) {
                     const blobUrl = URL.createObjectURL(blob);
                     blobUrls.push(blobUrl);
                 }
             }
 
-            if (blobUrls.length === 0) return;
+            if (!blobUrls.length) return;
 
             const isLandscape = orientation === "landscape";
             const pageW = isLandscape ? "297mm" : "210mm";
@@ -919,19 +1005,19 @@ const ProcessQualityTrand = () => {
 
     // 차트 크기 초기화
     const reset_chart_size = () => {
-        setLeftPanelHeight(400);
+        setLeftPanelHeight(600);
         setSplitKey((prev) => prev + 1);
     }
     // Spliter 높이 설정
-    const [leftPanelHeight, setLeftPanelHeight] = useState(400);
+    const [leftPanelHeight, setLeftPanelHeight] = useState(600);
     const [splitKey, setSplitKey] = useState(0);
     const handleSplitterResize = useCallback((event) => {
-        const totalHeight = 1800;
+        const totalHeight = 2800;
         const panelHeight = (totalHeight * event.sizes[0]) / 100;
         const headerHeight = 10;
         const cardPadding = 10;
         const newHeight = panelHeight - headerHeight - cardPadding;
-        setLeftPanelHeight(Math.max(400, newHeight));
+        setLeftPanelHeight(Math.max(600, newHeight));
     }, []);
 
     return (

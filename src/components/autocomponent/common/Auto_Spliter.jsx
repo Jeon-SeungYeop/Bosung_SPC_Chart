@@ -27,7 +27,7 @@ function Auto_Spliter({
       {vertical && (
         <Splitter 
           gutterSize={10} 
-          className="items-center justify-center w-full h-[1800px]" 
+          className="items-center justify-center w-full h-[2800px]" 
           layout="vertical"
           onResizeEnd={onResize} // 크기 변경 이벤트 추가
         >

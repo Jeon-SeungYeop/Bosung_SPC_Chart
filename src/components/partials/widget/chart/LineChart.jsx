@@ -63,9 +63,9 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
         backgroundColor: bg,
         borderColor: border,
         barThickness: 40,
-        pointRadius: 1,
-        pointHoverRadius: 3,
-        pointHoverBorderWidth: 3,
+        pointRadius: 3,
+        pointHoverRadius: 1,
+        pointHoverBorderWidth: 1,
         pointBorderColor: "transparent",
         tension: 0.5,
         pointStyle: "circle",
@@ -129,11 +129,11 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
         const firstPoint = meta?.data?.[0];
         if (!firstPoint) return;
 
-        const x = firstPoint.x - 30;
+        const x = firstPoint.x - 60;
         const y = firstPoint.y - 15;
 
         ctx.save();
-        ctx.font = "bold 13px Arial";
+        ctx.font = "bold 20px Arial";
         ctx.fillStyle = isDark ? "#cbd5e1" : "#475569";
         ctx.textAlign = "center";
         ctx.fillText(label, x, y);
@@ -164,6 +164,9 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
             const pts = meta.data || [];
             if (!pts.length) return;
 
+            // 실제 데이터 배열 (null 여부 확인용)
+            const dataArr = Array.isArray(ds.data) ? ds.data : [];
+
             // 각 dataset 별 간격
             const interval =
               datasetIntervals[di] ??
@@ -176,6 +179,12 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
             for (let i = 1; i < pts.length; i += 1) {
               if (i % interval !== 0) continue;
 
+              // 데이터 값이 null/NaN 이면 (더미 구간) 라벨 표시 안 함
+              const rawValue = dataArr[i];
+              if (typeof rawValue !== "number" || !Number.isFinite(rawValue)) {
+                continue;
+              }
+
               // ---- 공배수(여러 간격에 모두 걸리는 지점)에서는 표시 안 함 ----
               const isCommonMultiple = definedIntervals.some((iv, idx) => {
                 if (idx === di) return false;     // 자기 자신의 간격은 제외
@@ -186,7 +195,7 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
               // -------------------------------------------------------
 
               const el = pts[i];
-              if (!el) continue;
+              if (!el || el.skip) continue;       // skip 포인트도 제외
 
               const { x, y } = el.getProps(["x", "y"], true);
               if (
@@ -199,7 +208,7 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
               }
 
               ctx.save();
-              ctx.font = "bold 11px Arial";
+              ctx.font = "bold 16px Arial";
               ctx.textAlign = "left";
               ctx.textBaseline = "middle";
 
@@ -367,9 +376,7 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
         const yTicks = yScale.ticks || [];
 
         ctx.save();
-        ctx.font = "12px Arial";
-        ctx.textAlign = "right";
-        ctx.textBaseline = "middle";
+        ctx.font = "bold 22px Arial";
         ctx.fillStyle = isDark ? "#cbd5e1" : "#475569";
 
         const offsetX = 3;
@@ -381,10 +388,22 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
             if (y < chartArea.top || y > chartArea.bottom) return;
 
             const v = Math.round(Number(value));
+            // 0은 표시하지 않음
+            if (v === 0) return;
             if (v % 100 !== 0) return;
 
-            const label = `${v}°C`;
-            ctx.fillText(label, xPos - offsetX, y);
+            const label = `${v}`;
+
+            ctx.save();
+
+            ctx.translate(xPos - offsetX, y);
+            ctx.rotate(-Math.PI / 2); // 왼쪽으로 90도 회전
+
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+
+            ctx.fillText(label, 0, 0);
+            ctx.restore();
           });
         });
 
@@ -394,6 +413,56 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
     [isDark]
   );
 
+  // x축 시간 라벨을 왼쪽으로 90도 회전해서 그리는 플러그인
+  const xAxisRotatedLabelPlugin = useMemo(
+    () => ({
+      id: "xAxisRotatedLabelPlugin",
+      afterDraw: (chart, _args, pluginOptions) => {
+        const { ctx, chartArea, scales } = chart;
+        const xScale = scales?.x;
+        if (!xScale || !chartArea) return;
+
+        const labels = chart.data?.labels || [];
+
+        const timeOffset = pluginOptions?.timeOffset ?? 0;
+
+        // 5mm 간격 (0.5cm)
+        const GAP_CM = 0.5;
+        const gapPx = GAP_CM * CM_TO_PX;
+
+        ctx.save();
+        ctx.font = "bold 18px Arial";
+        ctx.fillStyle = isDark ? "#cbd5e1" : "#475569";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+
+        labels.forEach((lbl, idx) => {
+          const totalSeconds = parseTimeToSeconds(lbl);
+          if (totalSeconds === null) return;
+
+          // 1시간(3600초) 단위만 표시
+          if (totalSeconds % 3600 !== 0) return;
+
+          const hours = Math.floor(totalSeconds / 3600);
+          const cal_hours = (hours + timeOffset) % 24;
+
+          const x = xScale.getPixelForValue(idx);
+          const y = chartArea.bottom + gapPx; // x축에서 5mm 아래
+
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.rotate(-Math.PI / 2); // 왼쪽으로 90도 회전
+          ctx.fillText(String(cal_hours), 0, 0);
+          ctx.restore();
+        });
+
+        ctx.restore();
+      },
+    }),
+    [isDark]
+  );
+
+
   const options = useMemo(
     () => ({
       responsive: true,
@@ -401,31 +470,25 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
       layout: {
         padding: {
           right: 30,
-          top: 25,
+          top: 30,
+          bottom: 40,
         },
       },
       plugins: {
         title: {
           display: false,
           text: chartTitleText,
-          //position: "top",
-          //align: "center",
-          //color: isDark ? "#cbd5e1" : "#475569",
-          //font: { size: 16, weight: "bold" },
-          //padding: { top: 6, bottom: 12 },
         },
         legend: {
           display: false,
-          //position: "right",
-          //align: "center",
-          //labels: {
-          //  color: isDark ? "#cbd5e1" : "#475569",
-          //},
         },
         pointLegendPlugin: {
           interval: labelInterval,
         },
         yAxisRepeatLabelPlugin: {
+          timeOffset: randomStartHour,
+        },
+        xAxisRotatedLabelPlugin: {
           timeOffset: randomStartHour,
         },
       },
@@ -442,16 +505,23 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
             color: (ctx) => {
               const value = ctx?.tick?.value;
               if (typeof value !== "number") {
-                return isDark ? "#334155" : "#e2e8f0";
+                return isDark ? "#334155" : "#d7dce2ff";
               }
 
               // 100단위(0, 100, 200, ...) 격자는 조금 더 진하게
               if (value % 100 === 0) {
-                return isDark ? "#000000ff" : "#94a3b8";
+                return isDark ? "#000000ff" : "#000000ff";
               }
 
               // 나머지는 기존 색
-              return isDark ? "#334155" : "#e2e8f0";
+              return isDark ? "#334155" : "#d7dce2ff";
+            },
+            lineWidth: (ctx) => {
+              const value = ctx?.tick?.value;
+              if (typeof value !== "number") return 1;
+
+              // 100단위 선만 굵게 (2px)
+              return value % 100 === 0 ? 3 : 2;
             },
           },
           ticks: {
@@ -462,7 +532,8 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
             color: isDark ? "#cbd5e1" : "#475569",
             callback: function (value) {
               const v = Math.round(Number(value));
-              return v % 100 === 0 ? `${v}°C` : "";
+              if (v === 0) return "";      // 0은 표시 안 함
+              return v % 100 === 0 ? `${v}` : "";
             },
           },
         },
@@ -479,29 +550,18 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
 
               // 30분(1800초) 간격마다 그리드 표시
               const show = totalSeconds % 1800 === 0;
-              return show ? (isDark ? "#334155" : "#e2e8f0") : "transparent";
+              return show ? (isDark ? "#334155" : "#d7dce2ff") : "transparent";
+            },
+            lineWidth: (ctx) => {
+              const value = ctx?.tick?.value;
+              if (typeof value !== "number") return 1;
+
+              return 2;
             },
           },
           ticks: {
-            color: isDark ? "#cbd5e1" : "#475569",
-            maxRotation: 0,
+            display: false,
             autoSkip: false,
-            callback: function (value) {
-              const label = this.getLabelForValue(value);
-              if (!label) return "";
-
-              const totalSeconds = parseTimeToSeconds(label);
-              if (totalSeconds === null) return "";
-
-              // 1시간(3600초) 간격마다 시간 표시
-              if (totalSeconds % 3600 === 0) {
-                const hours = Math.floor(totalSeconds / 3600);
-                // 랜덤 시작 시각을 기준으로 고정
-                const cal_hours = (hours + randomStartHour) % 24;
-                return `${cal_hours}`;
-              }
-              return "";
-            },
           },
         },
       },
@@ -517,7 +577,7 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
           key={label}
           options={options}
           data={data}
-          plugins={[datePlugin, rotatedLegendPlugin, yAxisRepeatLabelPlugin, pointLegendPlugin]}
+          plugins={[datePlugin, rotatedLegendPlugin, yAxisRepeatLabelPlugin, pointLegendPlugin, xAxisRotatedLabelPlugin]}
         />
       </div>
     </div>
