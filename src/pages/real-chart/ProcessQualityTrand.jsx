@@ -21,7 +21,14 @@ const ProcessQualityTrand = () => {
         grid5: false,
         grid6: false,
     });
-    const CHART_TITLE_TEXT = "CHART NO. EH                 (0-1200)";
+    
+    // 예: CHART NO. EH01001 (0-1200)
+    function generateChartTitle() {
+        // 1 ~ 1200 사이 숫자
+        const n = Math.floor(Math.random() * 1200) + 1;
+        const numStr = String(n).padStart(5, "0"); // 항상 5자리
+        return `CHART NO. EH${numStr} (0-1200)`;
+    }
     const [chartDatasets, setChartDatasets] = useState([]);
 
     const FULL_PAGE_HOURS = 8;
@@ -666,7 +673,6 @@ const ProcessQualityTrand = () => {
 
     // 차트 프린트
     const divRef = useRef();
-    const title = "차트 생성";
 
     // 여러 장의 페이지를 지원하는 프린트 미리보기
     const openPrintPreviewWithBlobs = ({ blobUrls, title, pageW, pageH, isLandscape }) => {
@@ -786,6 +792,9 @@ const ProcessQualityTrand = () => {
 
     const handleDownload = async (orientation = "portrait") => { // portrait : 세로, landscape : 가로
         if (!divRef.current) return;
+
+        // 차트 제목 설정
+        const chartTitleText = generateChartTitle();
 
         // 차트 크기 조절 후 잠시 대기
         setLeftPanelHeight(1500);
@@ -934,7 +943,7 @@ const ProcessQualityTrand = () => {
                 ctx.textAlign = "center";
                 ctx.textBaseline = "top";
                 ctx.fillStyle = "#000000";
-                ctx.fillText(CHART_TITLE_TEXT, A4W / 2, titleY);
+                ctx.fillText(chartTitleText, A4W / 2, titleY);
                 ctx.restore();
 
                 // 차트 그리기
@@ -967,7 +976,7 @@ const ProcessQualityTrand = () => {
 
             openPrintPreviewWithBlobs({
                 blobUrls,
-                title,
+                title: chartTitleText,
                 pageW,
                 pageH,
                 isLandscape,

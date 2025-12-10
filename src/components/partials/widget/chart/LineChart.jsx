@@ -116,27 +116,38 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
     return { yMin: floor30, yMax: ceil30 };
   }, [line_data]);
 
-  // 첫 포인트 상단 라벨
+  // 실시일시 라벨: 오른쪽 여백의 하단 쪽에 세로(90도 회전)로 표시
   const datePlugin = useMemo(
     () => ({
       id: "dateDisplay",
       afterDraw: (chart) => {
         const ctx = chart.ctx;
-        const dataset = chart.data.datasets?.[0];
-        if (!dataset || !dataset.data || dataset.data.length === 0) return;
+        const { chartArea, scales } = chart;
 
-        const meta = chart.getDatasetMeta(0);
-        const firstPoint = meta?.data?.[0];
-        if (!firstPoint) return;
+        if (!label || !chartArea || !scales) return;
 
-        const x = firstPoint.x - 60;
-        const y = firstPoint.y - 15;
+        const yScale = scales.y;
+        if (!yScale) return;
+
+        // 오른쪽 여백 기준 위치
+        const rightX = yScale.right;
+        
+        const x = rightX + 15;
+
+        // 차트 하단에서 조금 위로 올린 위치
+        const y = chartArea.bottom - 200;
 
         ctx.save();
-        ctx.font = "bold 20px Arial";
+        ctx.translate(x, y);
+        ctx.rotate(-Math.PI / 2); // 왼쪽으로 90도 회전
+
+        ctx.font = "bold 26px Arial";
         ctx.fillStyle = isDark ? "#cbd5e1" : "#475569";
         ctx.textAlign = "center";
-        ctx.fillText(label, x, y);
+        ctx.textBaseline = "middle";
+
+        ctx.fillText(`열처리 실시 일시 : ${label}`, 0, 0);
+
         ctx.restore();
       },
     }),
@@ -208,7 +219,7 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
               }
 
               ctx.save();
-              ctx.font = "bold 16px Arial";
+              ctx.font = "bold 20px Arial";
               ctx.textAlign = "left";
               ctx.textBaseline = "middle";
 
@@ -376,7 +387,7 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
         const yTicks = yScale.ticks || [];
 
         ctx.save();
-        ctx.font = "bold 22px Arial";
+        ctx.font = "bold 32px Arial";
         ctx.fillStyle = isDark ? "#cbd5e1" : "#475569";
 
         const offsetX = 3;
@@ -427,11 +438,11 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
         const timeOffset = pluginOptions?.timeOffset ?? 0;
 
         // 5mm 간격 (0.5cm)
-        const GAP_CM = 0.5;
+        const GAP_CM = 0.8;
         const gapPx = GAP_CM * CM_TO_PX;
 
         ctx.save();
-        ctx.font = "bold 18px Arial";
+        ctx.font = "bold 30px Arial";
         ctx.fillStyle = isDark ? "#cbd5e1" : "#475569";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
@@ -470,7 +481,7 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
       layout: {
         padding: {
           right: 30,
-          top: 30,
+          top: 35,
           bottom: 40,
         },
       },
@@ -505,7 +516,7 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
             color: (ctx) => {
               const value = ctx?.tick?.value;
               if (typeof value !== "number") {
-                return isDark ? "#334155" : "#d7dce2ff";
+                return isDark ? "#334155" : "#000000ff";
               }
 
               // 100단위(0, 100, 200, ...) 격자는 조금 더 진하게
@@ -514,14 +525,14 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
               }
 
               // 나머지는 기존 색
-              return isDark ? "#334155" : "#d7dce2ff";
+              return isDark ? "#334155" : "#000000ff";
             },
             lineWidth: (ctx) => {
               const value = ctx?.tick?.value;
               if (typeof value !== "number") return 1;
 
               // 100단위 선만 굵게 (2px)
-              return value % 100 === 0 ? 3 : 2;
+              return value % 100 === 0 ? 3 : 1;
             },
           },
           ticks: {
@@ -550,13 +561,13 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
 
               // 30분(1800초) 간격마다 그리드 표시
               const show = totalSeconds % 1800 === 0;
-              return show ? (isDark ? "#334155" : "#d7dce2ff") : "transparent";
+              return show ? (isDark ? "#334155" : "#000000ff") : "transparent";
             },
             lineWidth: (ctx) => {
               const value = ctx?.tick?.value;
               if (typeof value !== "number") return 1;
 
-              return 2;
+              return 1;
             },
           },
           ticks: {
