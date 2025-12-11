@@ -22,13 +22,6 @@ const ProcessQualityTrand = () => {
         grid6: false,
     });
     
-    // 예: CHART NO. EH01001 (0-1200)
-    function generateChartTitle() {
-        // 1 ~ 1200 사이 숫자
-        const n = Math.floor(Math.random() * 1200) + 1;
-        const numStr = String(n).padStart(5, "0"); // 항상 5자리
-        return `CHART NO. EH${numStr} (0-1200)`;
-    }
     const [chartDatasets, setChartDatasets] = useState([]);
 
     const FULL_PAGE_HOURS = 8;
@@ -794,7 +787,7 @@ const ProcessQualityTrand = () => {
         if (!divRef.current) return;
 
         // 차트 제목 설정
-        const chartTitleText = generateChartTitle();
+        const chartTitleText = 'CHART NO. EH01001 (0-1200) '
 
         // 차트 크기 조절 후 잠시 대기
         setLeftPanelHeight(1500);
@@ -940,10 +933,22 @@ const ProcessQualityTrand = () => {
                 // 제목 그리기 (차트 바로 위)
                 ctx.save();
                 ctx.font = `bold ${TITLE_FONT_SIZE}px Arial`;
-                ctx.textAlign = "center";
+                ctx.textAlign = "left";
                 ctx.textBaseline = "top";
                 ctx.fillStyle = "#000000";
-                ctx.fillText(chartTitleText, A4W / 2, titleY);
+
+                // 텍스트 폭 계산해서 오른쪽 끝을 넘지 않도록 제한
+                const titleWidth = ctx.measureText(chartTitleText).width;
+                const minX = margin;
+                const maxX = margin + contentW - titleWidth; // 오른쪽 여백 고려
+
+                // 랜덤 X 값 계산 (위치만 랜덤으로)
+                const randX =
+                    maxX > minX
+                        ? minX + Math.random() * (maxX - minX)
+                        : minX;
+
+                ctx.fillText(chartTitleText, randX, titleY);
                 ctx.restore();
 
                 // 차트 그리기

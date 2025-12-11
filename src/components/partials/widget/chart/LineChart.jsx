@@ -132,10 +132,10 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
         // 오른쪽 여백 기준 위치
         const rightX = yScale.right;
         
-        const x = rightX + 15;
+        const x = rightX - 45;
 
         // 차트 하단에서 조금 위로 올린 위치
-        const y = chartArea.bottom - 200;
+        const y = chartArea.bottom - 10;
 
         ctx.save();
         ctx.translate(x, y);
@@ -143,10 +143,10 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
 
         ctx.font = "bold 26px Arial";
         ctx.fillStyle = isDark ? "#cbd5e1" : "#475569";
-        ctx.textAlign = "center";
+        ctx.textAlign = "left";
         ctx.textBaseline = "middle";
 
-        ctx.fillText(`열처리 실시 일시 : ${label}`, 0, 0);
+        ctx.fillText(`${label}`, 0, 0);
 
         ctx.restore();
       },
@@ -532,7 +532,7 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
               if (typeof value !== "number") return 1;
 
               // 100단위 선만 굵게 (2px)
-              return value % 100 === 0 ? 3 : 1;
+              return value % 100 === 0 ? 4 : 2;
             },
           },
           ticks: {
@@ -567,7 +567,7 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
               const value = ctx?.tick?.value;
               if (typeof value !== "number") return 1;
 
-              return 1;
+              return 2;
             },
           },
           ticks: {
