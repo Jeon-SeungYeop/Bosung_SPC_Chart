@@ -116,43 +116,41 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
     return { yMin: floor30, yMax: ceil30 };
   }, [line_data]);
 
-  // 실시일시 라벨: 오른쪽 여백의 하단 쪽에 세로(90도 회전)로 표시
+  // 첫 포인트 상단 라벨 (세로 90도 회전)
   const datePlugin = useMemo(
     () => ({
       id: "dateDisplay",
       afterDraw: (chart) => {
         const ctx = chart.ctx;
-        const { chartArea, scales } = chart;
+        const dataset = chart.data.datasets?.[0];
+        if (!dataset || !dataset.data || dataset.data.length === 0) return;
 
-        if (!label || !chartArea || !scales) return;
+        const meta = chart.getDatasetMeta(0);
+        const firstPoint = meta?.data?.[0];
+        if (!firstPoint) return;
 
-        const yScale = scales.y;
-        if (!yScale) return;
-
-        // 오른쪽 여백 기준 위치
-        const rightX = yScale.right;
-        
-        const x = rightX - 45;
-
-        // 차트 하단에서 조금 위로 올린 위치
-        const y = chartArea.bottom - 10;
+        // 기준 위치
+        const x = firstPoint.x - 30;
+        const y = firstPoint.y - 15;
 
         ctx.save();
-        ctx.translate(x, y);
-        ctx.rotate(-Math.PI / 2); // 왼쪽으로 90도 회전
+        ctx.translate(x, y);          // 기준점 이동
+        ctx.rotate(-Math.PI / 2);     // 왼쪽으로 90도 회전
 
-        ctx.font = "bold 26px Arial";
+        ctx.font = "bold 32px Arial";
         ctx.fillStyle = isDark ? "#cbd5e1" : "#475569";
         ctx.textAlign = "left";
         ctx.textBaseline = "middle";
 
-        ctx.fillText(`${label}`, 0, 0);
+        // 회전된 좌표계 기준 (0, 0)에 텍스트 출력
+        ctx.fillText(label, 0, 0);
 
         ctx.restore();
       },
     }),
     [label, isDark]
   );
+
 
   // 간헐적 라벨
   const pointLegendPlugin = useMemo(
