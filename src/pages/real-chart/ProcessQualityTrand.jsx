@@ -471,10 +471,10 @@ const ProcessQualityTrand = () => {
     };
 
     // JSON 생성(시나리오 저장)
-    function downloadJson(data, filename = "scenario.json") { // 한글 깨짐 방지 + JSON 다운로드
-        const BOM = new Uint8Array([0xef, 0xbb, 0xbf]);
+    function downloadJson(data, filename = "scenario.txt") { // 기본 확장자를 .txt로 설정
+        const BOM = new Uint8Array([0xef, 0xbb, 0xbf]); // UTF-8 BOM
         const json = JSON.stringify(data, null, 2);
-        const blob = new Blob([BOM, json], { type: "application/json;charset=utf-8" });
+        const blob = new Blob([BOM, json], { type: "text/plain;charset=utf-8" }); // MIME 타입을 "text/plain"으로 설정
         const url = URL.createObjectURL(blob);
 
         const a = document.createElement("a");
@@ -520,7 +520,7 @@ const ProcessQualityTrand = () => {
         };
 
         // 파일명 예: 시나리오 저장-2025-10-30-09-12-34.json
-        downloadJson(payload, `시나리오 저장-${ts()}.json`);
+        downloadJson(payload, `시나리오 저장-${ts()}.txt`);
     };
 
     // JSON 불러오기
@@ -539,8 +539,11 @@ const ProcessQualityTrand = () => {
         reader.onload = () => {
             try {
                 let text = String(reader.result || "");
+
+                // 파일이 BOM을 포함하는 경우, 이를 처리하기 위해 BOM을 제거
                 if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
 
+                // JSON 파싱
                 const json = JSON.parse(text);
                 const normalized = validateAndNormalizeScenario(json);
 
@@ -549,13 +552,13 @@ const ProcessQualityTrand = () => {
 
                 alert("시나리오가 성공적으로 불러와졌습니다.");
             } catch (err) {
-                alert(`시나리오 파일 형식이 올바르지 않습니다.`);
+                alert(`파일 형식이 올바르지 않습니다.`);
             }
         };
         reader.onerror = () => {
             alert("파일을 읽는 중 오류가 발생했습니다.");
         };
-        reader.readAsText(file, "utf-8");
+        reader.readAsText(file, "utf-8"); // 파일을 텍스트로 읽기
     };
 
     const MAX_ROWS = 10;
@@ -1180,7 +1183,7 @@ const ProcessQualityTrand = () => {
                                     <input
                                         ref={fileInputRef}
                                         type="file"
-                                        accept="application/json,.json"
+                                        accept=".json,.txt"
                                         onChange={handleFileChange}
                                         style={{ display: "none" }}
                                     />

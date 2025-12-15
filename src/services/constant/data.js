@@ -257,14 +257,14 @@ export const message = [
 ];
 
 export const colors = {
-  primary: "#4669FA",
-  secondary: "#A0AEC0",
-  danger: "#F1595C",
+  primary: "#1342ffff",
+  secondary: "#717274ff",
+  danger: "#fa161aff",
   black: "#111112",
   warning: "#FA916B",
   info: "#0CE7FA",
   light: "#425466",
-  success: "#50C793",
+  success: "#00ff91ff",
   "gray-f7": "#F7F8FC",
   dark: "#1E293B",
   "dark-gray": "#0F172A",

@@ -138,7 +138,7 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
         ctx.rotate(-Math.PI / 2);     // 왼쪽으로 90도 회전
 
         ctx.font = "bold 32px Arial";
-        ctx.fillStyle = isDark ? "#cbd5e1" : "#475569";
+        ctx.fillStyle = isDark ? "#cbd5e1" : "#27282bff";
         ctx.textAlign = "left";
         ctx.textBaseline = "middle";
 
@@ -345,7 +345,7 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
     return widthPx; // 숫자면 style width에서 px로 인식됨
   }, [line_data]);
 
-  // x축 기준 "표시되는 시간 % 6 === 0" 인 곳에만 온도 축(반복 y라벨) 표시
+  // x축 기준 "표시되는 시간 % 3 === 0" 인 곳에만 온도 축(반복 y라벨) 표시
   const yAxisRepeatLabelPlugin = useMemo(
     () => ({
       id: "yAxisRepeatLabelPlugin",
@@ -372,8 +372,8 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
           const hours = Math.floor(totalSeconds / 3600);
           const displayHour = (hours + timeOffset) % 24;
 
-          // "표시되는 시간 % 6 === 0" 인 곳만
-          if (displayHour % 6 !== 0) return;
+          // "표시되는 시간 % 3 === 0" 인 곳만
+          if (displayHour % 3 !== 0) return;
 
           const x = xScale.getPixelForValue(idx);
           if (x < chartArea.left || x > chartArea.right) return;
@@ -386,7 +386,7 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
 
         ctx.save();
         ctx.font = "bold 32px Arial";
-        ctx.fillStyle = isDark ? "#cbd5e1" : "#475569";
+        ctx.fillStyle = isDark ? "#cbd5e1" : "#27282bff";
 
         const offsetX = 3;
 
@@ -402,6 +402,86 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
             if (v % 100 !== 0) return;
 
             const label = `${v}`;
+
+            ctx.save();
+
+            ctx.translate(xPos - offsetX, y);
+            ctx.rotate(-Math.PI / 2); // 왼쪽으로 90도 회전
+
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+
+            ctx.fillText(label, 0, 0);
+            ctx.restore();
+          });
+        });
+
+        ctx.restore();
+      },
+    }),
+    [isDark]
+  );
+
+  // 3.5시간마다 반복 ℃ 표시
+  const celsiusRepeatLabelPlugin = useMemo(
+    () => ({
+      id: "celsiusRepeatLabelPlugin",
+      afterDraw: (chart, _args, pluginOptions) => {
+        const { ctx, chartArea, scales } = chart;
+        if (!chartArea) return;
+
+        const xScale = scales?.x;
+        const yScale = scales?.y;
+        if (!xScale || !yScale) return;
+
+        const labels = chart.data?.labels || [];
+        const xPositions = [];
+
+        const timeOffset = pluginOptions?.timeOffset ?? 0;
+
+        labels.forEach((lbl, idx) => {
+          const totalSeconds = parseTimeToSeconds(lbl);
+          if (totalSeconds === null) return;
+
+          // 정시만 사용 (hh:00:00)
+          if (totalSeconds % 3600 !== 0) return;
+
+          const hours = Math.floor(totalSeconds / 3600);
+          const displayHour = (hours + timeOffset) % 24;
+
+          // 3시간마다 표시 (시간이 3의 배수일 때만)
+          if (displayHour % 3 !== 0) return;
+
+          const x = xScale.getPixelForValue(idx);
+          if (x < chartArea.left || x > chartArea.right) return;
+
+          // 기존 위치에서 +30분(0.5 시간)을 추가한 위치 계산
+          const xPosition = x + (-1 * GRID_SPACING_PX); // 30분 추가 (-1 * grid spacing)
+          xPositions.push(xPosition);
+        });
+
+        if (!xPositions.length) return;
+
+        const yTicks = yScale.ticks || [];
+
+        ctx.save();
+        ctx.font = "bold 32px Arial";
+        ctx.fillStyle = isDark ? "#cbd5e1" : "#27282bff";
+
+        const offsetX = 3;
+
+        xPositions.forEach((xPos) => {
+          yTicks.forEach((tick) => {
+            const value = tick.value;
+            const y = yScale.getPixelForValue(value);
+            if (y < chartArea.top || y > chartArea.bottom) return;
+
+            const v = Math.round(Number(value));
+            // 0은 표시하지 않음
+            if (v === 0) return;
+            if (v !== 600) return; // 600에만 표시
+
+            const label = `℃`;
 
             ctx.save();
 
@@ -497,6 +577,9 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
         yAxisRepeatLabelPlugin: {
           timeOffset: randomStartHour,
         },
+        celsiusRepeatLabelPlugin: {
+          timeOffset: randomStartHour,
+        },
         xAxisRotatedLabelPlugin: {
           timeOffset: randomStartHour,
         },
@@ -586,7 +669,7 @@ const LineChart = ({ line_data, height, label = "", labelInterval = 100 }) => {
           key={label}
           options={options}
           data={data}
-          plugins={[datePlugin, rotatedLegendPlugin, yAxisRepeatLabelPlugin, pointLegendPlugin, xAxisRotatedLabelPlugin]}
+          plugins={[datePlugin, rotatedLegendPlugin, yAxisRepeatLabelPlugin, pointLegendPlugin, xAxisRotatedLabelPlugin, celsiusRepeatLabelPlugin]}
         />
       </div>
     </div>
